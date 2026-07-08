@@ -154,6 +154,9 @@ export default function EditorClient() {
         const fonts = await getGoogleFonts();
         const sans = fonts.find(f => f.category === "sans-serif");
         if (sans) detectedFamily = sans.family;
+        // Load the matched font before it is used in rendering
+        await document.fonts.load(`400 1em "${detectedFamily}"`);
+        await document.fonts.ready;
       } catch {}
       setFontFamily(detectedFamily);
       setFontSize(detectedSize);
@@ -385,6 +388,12 @@ export default function EditorClient() {
     const { Textbox: FabricTextbox, Shadow: FabricShadow, Rect: FabricRect } = fabric;
 
     if (active.isBbox) {
+      // Ensure the target font is loaded before measuring / rendering
+      try {
+        await document.fonts.load(`400 1em "${fontFamily}"`);
+        await document.fonts.ready;
+      } catch {}
+
       const bboxLeft = Math.round(active.left || 0);
       const bboxTop = Math.round(active.top || 0);
       const bboxW = Math.round((active.width || 1) * (active.scaleX || 1));
@@ -430,16 +439,28 @@ export default function EditorClient() {
         textW = tempCtx.measureText(editText || " ").width;
       }
 
+      // RC2: shift vertical position so the visual text fills the bbox
+      // Fabric renders text with baseline at ~top + fontSize, pushing the
+      // cap-height line down.  Offset by (fontSize - bboxH) / 2 so the
+      // visible glyphs sit inside the original bbox.
+      const vertOffset = Math.round((fittedSize - bboxH) / 2);
+
       const tb = new FabricTextbox(editText, {
         // Position and size — cloned from bbox native geometry
         left: bboxLeft,
-        top: bboxTop,
+        top: bboxTop + vertOffset,
         width: Math.max(bboxW, 10),
+        // RC3: prevent Fabric from overriding narrow widths
+        minWidth: 0,
         // Font properties — from React state (set by syncFromObj + user edits)
         fontSize: fittedSize, fontFamily, fill: fontColor, padding: 0,
         fontWeight, fontStyle: italic ? "italic" : "normal",
         underline, linethrough: strikethrough,
-        textAlign, charSpacing,
+        // RC4: center text within the bbox for a natural single-word look
+        textAlign: "center", charSpacing,
+        // RC5: clone origin reference points from the bbox object
+        originX: active.originX || "left",
+        originY: active.originY || "top",
         // Cloned from the original bbox object's native Fabric properties
         angle: Math.round(active.angle || 0),
         scaleX: active.scaleX ?? 1,
