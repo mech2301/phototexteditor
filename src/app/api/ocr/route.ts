@@ -9,30 +9,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
     }
 
-    const apiKey = process.env.OCR_SPACE_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "OCR API key not configured" },
-        { status: 500 }
-      );
-    }
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(bytes);
 
-    const ocrFormData = new FormData();
-    ocrFormData.append("file", file);
-    ocrFormData.append("language", "eng");
-    ocrFormData.append("isOverlayRequired", "true");
+    const { createWorker } = await import("tesseract.js");
 
-    const res = await fetch("https://api.ocr.space/parse/image", {
-      method: "POST",
-      headers: { apikey: apiKey },
-      body: ocrFormData,
+    const worker = await createWorker("eng", 1, {
+      cachePath: "/tmp/tessdata",
+      cacheMethod: "readWriteOnly",
     });
 
-    const data = await res.json();
-    return NextResponse.json(data);
-  } catch (error) {
+    const { data } = await worker.recognize(buffer);
+    await worker.terminate();
+
+    const words: { text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }[] = [];
+    if (data.blocks) {
+      for (const block of data.blocks) {
+        if (!block.paragraphs) continue;
+        for (const paragraph of block.paragraphs) {
+          for (const line of paragraph.lines || []) {
+            for (const word of line.words || []) {
+              words.push({
+                text: word.text,
+                bbox: {
+                  x0: word.bbox.x0,
+                  y0: word.bbox.y0,
+                  x1: word.bbox.x1,
+                  y1: word.bbox.y1,
+                },
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return NextResponse.json({ words, text: data.text || "" });
+  } catch (error: any) {
+    console.error("OCR route error:", error);
     return NextResponse.json(
-      { error: "OCR processing failed" },
+      { error: error?.message || "OCR processing failed" },
       { status: 500 }
     );
   }

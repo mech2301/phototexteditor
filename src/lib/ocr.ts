@@ -8,16 +8,31 @@ export interface OCRResult {
   text: string;
 }
 
-// Tesseract.js - client-side OCR
-export async function ocrTesseract(image: File | string): Promise<OCRResult> {
-  const Tesseract = await import("tesseract.js");
+// Server-side OCR via API route (recommended — no browser download)
+export async function ocrServer(image: File): Promise<OCRResult> {
+  const formData = new FormData();
+  formData.append("file", image);
 
-  const worker = await Tesseract.default.createWorker("eng", 1, {
+  const res = await fetch("/api/ocr", {
+    method: "POST",
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `OCR server error: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Client-side Tesseract.js — used as fallback
+export async function ocrTesseract(image: File | string): Promise<OCRResult> {
+  const { createWorker } = await import("tesseract.js");
+
+  const worker = await createWorker("eng", 1, {
     logger: (m: any) => console.log("Tesseract:", m.status, m.progress),
     errorHandler: (err: any) => console.error("Tesseract error:", err),
   });
 
-  // blocks:true is required in v7 to get word-level bounding boxes
   const { data } = await worker.recognize(image, {}, { text: true, blocks: true });
   await worker.terminate();
 
@@ -46,51 +61,21 @@ export async function ocrTesseract(image: File | string): Promise<OCRResult> {
   return { words, text: data.text };
 }
 
-// OCR.space API fallback
-export async function ocrSpace(image: File): Promise<OCRResult> {
-  const apiKey = process.env.NEXT_PUBLIC_OCR_SPACE_API_KEY || "";
-  if (!apiKey) throw new Error("OCR.space API key not configured");
-
-  const formData = new FormData();
-  formData.append("file", image);
-  formData.append("language", "eng");
-  formData.append("isOverlayRequired", "true");
-
-  const res = await fetch("https://api.ocr.space/parse/image", {
-    method: "POST",
-    headers: { apikey: apiKey },
-    body: formData,
-  });
-  const data = await res.json();
-  const words: OCRWord[] = [];
-  if (data.ParsedResults?.[0]?.TextOverlay?.Lines) {
-    for (const line of data.ParsedResults[0].TextOverlay.Lines) {
-      if (line.Words) {
-        for (const w of line.Words) {
-          words.push({
-            text: w.WordText,
-            bbox: {
-              x0: w.Left,
-              y0: w.Top,
-              x1: w.Left + w.Width,
-              y1: w.Top + w.Height,
-            },
-          });
-        }
-      }
-    }
-  }
-  return {
-    words,
-    text: data.ParsedResults?.[0]?.ParsedText || "",
-  };
-}
-
-// Auto: try Tesseract first, fallback to OCR.space
+// Auto: try server API first, fall back to client-side Tesseract
 export async function detectText(image: File): Promise<OCRResult> {
+  try {
+    const result = await ocrServer(image);
+    if (result.words.length > 0) {
+      console.log(`OCR (server) found ${result.words.length} words`);
+      return result;
+    }
+  } catch (e) {
+    console.warn("Server OCR failed, falling back to client Tesseract:", e);
+  }
+
   const result = await ocrTesseract(image);
   if (result.words.length > 0) {
-    console.log(`OCR found ${result.words.length} words`);
+    console.log(`OCR (client) found ${result.words.length} words`);
     return result;
   }
   throw new Error("No text found by OCR");
