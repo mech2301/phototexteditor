@@ -67,30 +67,55 @@ export default function EditorClient() {
     return ocr;
   }, []);
 
-  const sampleTextColor = useCallback((obj: any): string => {
-    if (!obj.isBbox || !canvasRef.current) return "#000000";
-    const ctx = canvasRef.current.getContext("2d");
-    if (!ctx) return "#000000";
-    const l = Math.round(obj.left || 0), t = Math.round(obj.top || 0);
-    const w = Math.round((obj.width || 10) * (obj.scaleX || 1));
-    const h = Math.round((obj.height || 10) * (obj.scaleY || 1));
-    if (w < 2 || h < 2) return "#000000";
-    const imgData = ctx.getImageData(l, t, w, h);
-    const d = imgData.data;
-    let totalLum = 0, count = 0;
-    for (let i = 0; i < d.length; i += 4) {
-      totalLum += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
-      count++;
+  const sampleTextColor = useCallback(async (obj: any, imgUrl: string): Promise<string> => {
+    if (!obj.isBbox || !imgUrl) return "#000000";
+    const { scale: sc, left: imgOffX, top: imgOffY } = imageInfoRef.current;
+    const origX = Math.round((obj.left - imgOffX) / sc);
+    const origY = Math.round((obj.top - imgOffY) / sc);
+    const origW = Math.max(Math.round((obj.width * obj.scaleX) / sc), 4);
+    const origH = Math.max(Math.round((obj.height * obj.scaleY) / sc), 4);
+    if (origW < 4 || origH < 4) return "#000000";
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = imgUrl;
+    });
+    const off = document.createElement("canvas");
+    off.width = origW; off.height = origH;
+    const octx = off.getContext("2d")!;
+    octx.drawImage(img, origX, origY, origW, origH, 0, 0, origW, origH);
+    const d = octx.getImageData(0, 0, origW, origH).data;
+    const total = d.length / 4;
+    let rSum = 0, gSum = 0, bSum = 0;
+    for (let i = 0; i < d.length; i += 4) { rSum += d[i]; gSum += d[i+1]; bSum += d[i+2]; }
+    const bgLum = (0.299 * rSum + 0.587 * gSum + 0.114 * bSum) / total;
+    if (bgLum > 140) {
+      let dr = 0, dg = 0, db = 0, dn = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const lum = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+        if (lum < bgLum - 30) { dr += d[i]; dg += d[i+1]; db += d[i+2]; dn++; }
+      }
+      if (dn < 5) return "#000000";
+      return "#" + [dr, dg, db].map(v => Math.round(v/dn).toString(16).padStart(2,"0")).join("");
+    } else {
+      let lr = 0, lg = 0, lb = 0, ln = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const lum = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+        if (lum > bgLum + 30) { lr += d[i]; lg += d[i+1]; lb += d[i+2]; ln++; }
+      }
+      if (ln < 5) return "#FFFFFF";
+      return "#" + [lr, lg, lb].map(v => Math.round(v/ln).toString(16).padStart(2,"0")).join("");
     }
-    return totalLum / count > 140 ? "#000000" : "#FFFFFF";
   }, []);
 
-  const syncFromObj = useCallback((obj: any) => {
+  const syncFromObj = useCallback(async (obj: any) => {
     setSelectedText(obj.originalText || obj.text || "");
     setEditText(obj.originalText || obj.text || "");
     setFontFamily(obj.fontFamily || "Arial");
-    setFontSize(obj.fontSize || Math.round((obj.height || 24)) || 24);
-    setFontColor(obj.isBbox ? sampleTextColor(obj) : (obj.fill || "#000000"));
+    setFontSize(obj.fontSize || Math.round((obj.height || 24) * 1.2) || 24);
+    if (obj.isBbox && imageUrl) {
+      try { setFontColor(await sampleTextColor(obj, imageUrl)); } catch { setFontColor("#000000"); }
+    } else {
+      setFontColor(obj.fill || "#000000");
+    }
     setFontWeight(obj.fontWeight ?? 400);
     setItalic(obj.fontStyle === "italic");
     setUnderline(!!obj.underline);
@@ -107,7 +132,7 @@ export default function EditorClient() {
     } else {
       setShadowEnabled(false);
     }
-  }, []);
+  }, [imageUrl, sampleTextColor]);
 
   // Process image
   useEffect(() => {
