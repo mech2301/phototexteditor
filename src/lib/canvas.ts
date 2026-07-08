@@ -1,6 +1,11 @@
 "use client";
 
-import { Canvas as FabricCanvas, Rect, Textbox, Image as FabricImage } from "fabric";
+import {
+  Canvas as FabricCanvas,
+  Rect,
+  Textbox,
+  Image as FabricImage,
+} from "fabric";
 
 export function initCanvas(
   canvasEl: HTMLCanvasElement,
@@ -43,17 +48,20 @@ export function initCanvas(
 
 export function drawBoundingBoxes(
   canvas: FabricCanvas,
-  words: Array<{ text: string; bbox: { x0: number; y0: number; x1: number; y1: number } }>,
+  words: Array<{
+    text: string;
+    bbox: { x0: number; y0: number; x1: number; y1: number };
+  }>,
   scale: number
 ) {
-  canvas.remove(...canvas.getObjects().filter((o) => (o as any).isBbox));
+  clearBoundingBoxes(canvas);
   return words.map((word) => {
     const rect = new Rect({
       left: word.bbox.x0 * scale,
       top: word.bbox.y0 * scale,
-      width: (word.bbox.x1 - word.bbox.x0) * scale,
-      height: (word.bbox.y1 - word.bbox.y0) * scale,
-      fill: "rgba(99, 102, 241, 0.12)",
+      width: Math.max((word.bbox.x1 - word.bbox.x0) * scale, 10),
+      height: Math.max((word.bbox.y1 - word.bbox.y0) * scale, 10),
+      fill: "rgba(99, 102, 241, 0.1)",
       stroke: "#6366f1",
       strokeWidth: 2,
       strokeUniform: true,
@@ -65,6 +73,13 @@ export function drawBoundingBoxes(
     canvas.add(rect);
     return rect;
   });
+}
+
+export function clearBoundingBoxes(canvas: FabricCanvas) {
+  const bboxes = canvas
+    .getObjects()
+    .filter((o) => (o as any).isBbox === true);
+  canvas.remove(...bboxes);
 }
 
 export function downloadCanvas(
@@ -82,6 +97,49 @@ export function downloadCanvas(
   link.download = `photext-edited.${format}`;
   link.href = dataUrl;
   link.click();
+}
+
+export function replaceActiveObject(
+  canvas: FabricCanvas,
+  newText: string,
+  options?: { fontSize?: number; fontFamily?: string; fill?: string }
+) {
+  const active = canvas.getActiveObject();
+  if (!active) return null;
+
+  const isBbox = (active as any).isBbox === true;
+
+  if (isBbox) {
+    const tb = new Textbox(newText, {
+      left: (active.left || 0) + 2,
+      top: (active.top || 0) + 2,
+      width: Math.max(((active.width || 100) * (active.scaleX || 1)) - 4, 50),
+      fontSize: options?.fontSize || 20,
+      fontFamily: options?.fontFamily || "Arial",
+      fill: options?.fill || "#000000",
+      borderColor: "#6366f1",
+      cornerColor: "#6366f1",
+      cornerSize: 8,
+      transparentCorners: false,
+      editable: true,
+    });
+    canvas.remove(active);
+    canvas.add(tb);
+    canvas.setActiveObject(tb);
+    canvas.renderAll();
+    return tb;
+  }
+
+  if ((active as any).isType?.("Textbox") || active.constructor.name === "Textbox") {
+    active.set("text", newText);
+    if (options?.fontSize) active.set("fontSize", options.fontSize);
+    if (options?.fontFamily) active.set("fontFamily", options.fontFamily);
+    if (options?.fill) active.set("fill", options.fill);
+    canvas.renderAll();
+    return active;
+  }
+
+  return null;
 }
 
 export function addTextBoxToCanvas(
@@ -110,45 +168,44 @@ export function addTextBoxToCanvas(
   return tb;
 }
 
-export function replaceActiveObject(
+export function getImageScale(
+  canvas: FabricCanvas
+): { scale: number; imgLeft: number; imgTop: number } | null {
+  const img = canvas
+    .getObjects()
+    .find((o) => o.constructor.name === "Image" || (o as any).isType?.("Image"));
+  if (!img) return null;
+  return {
+    scale: img.scaleX || 1,
+    imgLeft: img.left || 0,
+    imgTop: img.top || 0,
+  };
+}
+
+export function addSelectionRect(
   canvas: FabricCanvas,
-  newText: string,
-  options?: { fontSize?: number; fontFamily?: string; fill?: string }
+  text: string,
+  left: number,
+  top: number,
+  width: number,
+  height: number
 ) {
-  const active = canvas.getActiveObject();
-  if (!active) return null;
-
-  const isBbox = (active as any).isBbox === true;
-
-  if (isBbox) {
-    const tb = new Textbox(newText, {
-      left: active.left,
-      top: active.top,
-      width: (active.width || 100) * (active.scaleX || 1),
-      fontSize: options?.fontSize || 20,
-      fontFamily: options?.fontFamily || "Arial",
-      fill: options?.fill || "#000000",
-      borderColor: "#6366f1",
-      cornerColor: "#6366f1",
-      cornerSize: 8,
-      transparentCorners: false,
-      editable: true,
-    });
-    canvas.remove(active);
-    canvas.add(tb);
-    canvas.setActiveObject(tb);
-    canvas.renderAll();
-    return tb;
-  }
-
-  if ((active as any).isType?.("Textbox")) {
-    active.set("text", newText);
-    if (options?.fontSize) active.set("fontSize", options.fontSize);
-    if (options?.fontFamily) active.set("fontFamily", options.fontFamily);
-    if (options?.fill) active.set("fill", options.fill);
-    canvas.renderAll();
-    return active;
-  }
-
-  return null;
+  const rect = new Rect({
+    left,
+    top,
+    width,
+    height,
+    fill: "rgba(99, 102, 241, 0.12)",
+    stroke: "#6366f1",
+    strokeWidth: 2,
+    strokeUniform: true,
+    selectable: true,
+    evented: true,
+  });
+  (rect as any).isBbox = true;
+  (rect as any).originalText = text;
+  canvas.add(rect);
+  canvas.setActiveObject(rect);
+  canvas.renderAll();
+  return rect;
 }

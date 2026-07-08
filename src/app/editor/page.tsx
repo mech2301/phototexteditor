@@ -9,6 +9,8 @@ import {
   Loader2,
   Trash2,
   Plus,
+  MousePointerClick,
+  Square,
 } from "lucide-react";
 import Link from "next/link";
 import { detectText, type OCRResult } from "@/lib/ocr";
@@ -19,11 +21,12 @@ import {
   replaceActiveObject,
   addTextBoxToCanvas,
 } from "@/lib/canvas";
-import { Canvas, Textbox } from "fabric";
+import { Canvas, Rect } from "fabric";
+
+type Tool = "select" | "rect";
 
 export default function EditorPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [ocrCount, setOcrCount] = useState(0);
@@ -33,9 +36,12 @@ export default function EditorPage() {
   const [fontSize, setFontSize] = useState(20);
   const [fontColor, setFontColor] = useState("#000000");
   const [hasImage, setHasImage] = useState(false);
-  const [canvasReady, setCanvasReady] = useState(false);
+  const [tool, setTool] = useState<Tool>("select");
+  const [isDrawing, setIsDrawing] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fabricRef = useRef<Canvas | null>(null);
+  const drawStart = useRef<{ x: number; y: number } | null>(null);
+  const drawRectRef = useRef<Rect | null>(null);
 
   useEffect(() => {
     return () => {
@@ -44,78 +50,90 @@ export default function EditorPage() {
     };
   }, [imageUrl]);
 
-  const loadImage = useCallback(async (file: File) => {
-    const url = URL.createObjectURL(file);
-    setImageUrl(url);
-    setImageFile(file);
-    setHasImage(false);
-    setCanvasReady(false);
-    setOcrCount(0);
-    setSelectedText("");
-
-    if (!canvasRef.current) return;
-
-    setStatusText("Loading image...");
-    try {
-      const { canvas, scale } = await initCanvas(canvasRef.current, url);
-      fabricRef.current = canvas;
-      setHasImage(true);
-      setCanvasReady(true);
-
-      canvas.on("selection:created", (e: any) => {
-        const obj = e.selected?.[0];
-        const originalText = (obj as any)?.originalText;
-        if (originalText) {
-          setSelectedText(originalText);
-          setEditText(originalText);
-        } else if ((obj as any)?.isType?.("Textbox")) {
-          setSelectedText(obj.text || "");
-          setEditText(obj.text || "");
-        }
-      });
-
-      canvas.on("selection:updated", (e: any) => {
-        const obj = e.selected?.[0];
-        const originalText = (obj as any)?.originalText;
-        if (originalText) {
-          setSelectedText(originalText);
-          setEditText(originalText);
-        } else if ((obj as any)?.isType?.("Textbox")) {
-          setSelectedText(obj.text || "");
-          setEditText(obj.text || "");
-        }
-      });
-
-      canvas.on("selection:cleared", () => {
-        setSelectedText("");
-        setEditText("");
-      });
-
-      setStatusText("Running OCR text detection...");
-      setLoading(true);
-
-      let result: OCRResult | null = null;
-      try {
-        result = await detectText(file);
-      } catch (err) {
-        console.warn("OCR failed, continuing without detection:", err);
+  const setupCanvasEvents = useCallback((canvas: Canvas) => {
+    canvas.on("selection:created", (e: any) => {
+      const obj = e.selected?.[0];
+      const originalText = (obj as any)?.originalText;
+      if (originalText !== undefined) {
+        setSelectedText(originalText);
+        setEditText(originalText);
+      } else if (
+        obj?.constructor?.name === "Textbox" ||
+        (obj as any)?.isType?.("Textbox")
+      ) {
+        setSelectedText(obj.text || "");
+        setEditText(obj.text || "");
       }
+    });
 
-      if (result && result.words.length > 0) {
-        setOcrCount(result.words.length);
-        drawBoundingBoxes(canvas, result.words, scale);
-        canvas.renderAll();
-        setStatusText(`Detected ${result.words.length} text regions — click one to edit`);
-      } else {
-        setOcrCount(0);
-        setStatusText("No text detected. Use 'Add Text' to add text manually.");
+    canvas.on("selection:updated", (e: any) => {
+      const obj = e.selected?.[0];
+      const originalText = (obj as any)?.originalText;
+      if (originalText !== undefined) {
+        setSelectedText(originalText);
+        setEditText(originalText);
+      } else if (
+        obj?.constructor?.name === "Textbox" ||
+        (obj as any)?.isType?.("Textbox")
+      ) {
+        setSelectedText(obj.text || "");
+        setEditText(obj.text || "");
       }
-    } catch (err) {
-      console.error("Failed to load image:", err);
-      setStatusText("Failed to load image. Try another file.");
-    }
-    setLoading(false);
+    });
+
+    canvas.on("selection:cleared", () => {
+      setSelectedText("");
+      setEditText("");
+    });
   }, []);
+
+  const loadImage = useCallback(
+    async (file: File) => {
+      const url = URL.createObjectURL(file);
+      setImageUrl(url);
+      setHasImage(false);
+      setOcrCount(0);
+      setSelectedText("");
+      setLoading(true);
+      setStatusText("Loading image...");
+
+      if (!canvasRef.current) return;
+
+      try {
+        const { canvas, scale } = await initCanvas(canvasRef.current, url);
+        fabricRef.current = canvas;
+        setHasImage(true);
+        setupCanvasEvents(canvas);
+
+        setStatusText("Running OCR text detection...");
+        let result: OCRResult | null = null;
+        try {
+          result = await detectText(file);
+        } catch (err: any) {
+          console.warn("OCR failed:", err?.message || err);
+        }
+
+        if (result && result.words.length > 0) {
+          setOcrCount(result.words.length);
+          drawBoundingBoxes(canvas, result.words, scale);
+          canvas.renderAll();
+          setStatusText(
+            `Detected ${result.words.length} text regions — click a blue box to edit`
+          );
+        } else {
+          setOcrCount(0);
+          setStatusText(
+            'No text detected. Use "Select Region" tool to mark text manually, then click the box to edit.'
+          );
+        }
+      } catch (err: any) {
+        console.error("Failed to load image:", err);
+        setStatusText("Failed to load image. Try another file.");
+      }
+      setLoading(false);
+    },
+    [setupCanvasEvents]
+  );
 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
@@ -133,6 +151,83 @@ export default function EditorPage() {
     noKeyboard: hasImage,
   });
 
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (tool !== "rect" || !fabricRef.current || !canvasRef.current) return;
+      const canvas = fabricRef.current;
+      const el = canvasRef.current;
+      const b = el.getBoundingClientRect();
+      const x = (e.clientX - b.left) * (el.width / b.width);
+      const y = (e.clientY - b.top) * (el.height / b.height);
+      drawStart.current = { x, y };
+      setIsDrawing(true);
+
+      const shape = new Rect({
+        left: x,
+        top: y,
+        width: 1,
+        height: 1,
+        fill: "rgba(99, 102, 241, 0.15)",
+        stroke: "#6366f1",
+        strokeWidth: 2,
+        strokeDashArray: [6, 3] as number[],
+        selectable: false,
+        evented: false,
+      });
+      canvas.add(shape);
+      drawRectRef.current = shape;
+      canvas.renderAll();
+    },
+    [tool]
+  );
+
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      if (!isDrawing || !drawStart.current || !drawRectRef.current || !fabricRef.current || !canvasRef.current) return;
+      const canvas = fabricRef.current;
+      const el = canvasRef.current;
+      const r = el.getBoundingClientRect();
+      const pointer = {
+        x: (e.clientX - r.left) * (el.width / r.width),
+        y: (e.clientY - r.top) * (el.height / r.height),
+      };
+
+      const x = Math.min(drawStart.current.x, pointer.x);
+      const y = Math.min(drawStart.current.y, pointer.y);
+      const w = Math.abs(pointer.x - drawStart.current.x);
+      const h = Math.abs(pointer.y - drawStart.current.y);
+
+      drawRectRef.current.set({ left: x, top: y, width: w, height: h });
+      canvas.renderAll();
+    },
+    [isDrawing]
+  );
+
+  const handleMouseUp = useCallback(() => {
+    if (tool !== "rect" || !isDrawing || !drawRectRef.current || !fabricRef.current) return;
+    const canvas = fabricRef.current;
+    const sel = drawRectRef.current;
+
+    if (sel.width! < 10 || sel.height! < 10) {
+      canvas.remove(sel);
+      canvas.renderAll();
+    } else {
+      sel.set({ strokeDashArray: undefined, selectable: true, evented: true });
+      (sel as any).isBbox = true;
+      (sel as any).originalText = "[selected region]";
+      canvas.setActiveObject(sel);
+      canvas.renderAll();
+      setSelectedText("[selected region]");
+      setEditText("");
+      setOcrCount((c) => c + 1);
+    }
+
+    drawRectRef.current = null;
+    drawStart.current = null;
+    setIsDrawing(false);
+    setTool("select");
+  }, [tool, isDrawing]);
+
   const handleDownload = async (format: "png" | "jpeg" | "webp") => {
     if (fabricRef.current) {
       downloadCanvas(fabricRef.current, format);
@@ -145,21 +240,25 @@ export default function EditorPage() {
     const active = canvas.getActiveObject();
     if (!active) return;
 
-    replaceActiveObject(canvas, editText, { fontSize, fontFamily, fill: fontColor });
+    replaceActiveObject(canvas, editText, {
+      fontSize,
+      fontFamily,
+      fill: fontColor,
+    });
   };
 
   const handleAddText = () => {
     const canvas = fabricRef.current;
     if (!canvas) return;
-    const centerX = canvas.width! / 2;
-    const centerY = canvas.height! / 2;
-    addTextBoxToCanvas(canvas, "Your Text", centerX - 100, centerY - 20, {
+    const cx = canvas.width! / 2;
+    const cy = canvas.height! / 2;
+    const tb = addTextBoxToCanvas(canvas, "New Text", cx - 100, cy - 20, {
       fontSize,
       fontFamily,
       fill: fontColor,
     });
-    setSelectedText("");
-    setEditText("Your Text");
+    setSelectedText("New Text");
+    setEditText("New Text");
   };
 
   const handleDeleteSelected = () => {
@@ -167,9 +266,11 @@ export default function EditorPage() {
     if (!canvas) return;
     const active = canvas.getActiveObject();
     if (active) {
+      const isBbox = (active as any).isBbox === true;
       canvas.remove(active);
       canvas.renderAll();
       setSelectedText("");
+      if (isBbox) setOcrCount((c) => Math.max(0, c - 1));
     }
   };
 
@@ -177,39 +278,68 @@ export default function EditorPage() {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
     fabricRef.current?.dispose();
     setImageUrl(null);
-    setImageFile(null);
     setHasImage(false);
-    setCanvasReady(false);
     setOcrCount(0);
     setSelectedText("");
     setStatusText("");
+    drawRectRef.current = null;
+    drawStart.current = null;
+    setIsDrawing(false);
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-white border-b border-border px-4 py-3 flex items-center justify-between shrink-0">
-        <Link
-          href="/"
-          className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
-        >
-          <ArrowLeft className="w-4 h-4" /> Back
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900"
+          >
+            <ArrowLeft className="w-4 h-4" /> Back
+          </Link>
+          {hasImage && (
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setTool("select")}
+                className={`p-1.5 rounded-md text-xs flex items-center gap-1 transition-colors ${
+                  tool === "select"
+                    ? "bg-white shadow-sm text-primary"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+                title="Select & edit text"
+              >
+                <MousePointerClick className="w-3.5 h-3.5" /> Select
+              </button>
+              <button
+                onClick={() => setTool("rect")}
+                className={`p-1.5 rounded-md text-xs flex items-center gap-1 transition-colors ${
+                  tool === "rect"
+                    ? "bg-white shadow-sm text-primary"
+                    : "text-gray-500 hover:text-gray-700"
+                }`}
+                title="Draw region over text"
+              >
+                <Square className="w-3.5 h-3.5" /> Region
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {hasImage && (
-            <button
-              onClick={handleNewImage}
-              className="flex items-center gap-2 px-4 py-2 text-sm border border-border rounded-lg hover:bg-gray-50"
-            >
-              <Upload className="w-4 h-4" /> New Image
-            </button>
-          )}
-          {hasImage && (
-            <button
-              onClick={() => handleDownload("png")}
-              className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary-hover"
-            >
-              <Download className="w-4 h-4" /> Download
-            </button>
+            <>
+              <button
+                onClick={handleNewImage}
+                className="flex items-center gap-2 px-4 py-2 text-sm border border-border rounded-lg hover:bg-gray-50"
+              >
+                <Upload className="w-4 h-4" /> New Image
+              </button>
+              <button
+                onClick={() => handleDownload("png")}
+                className="flex items-center gap-2 px-4 py-2 text-sm bg-primary text-white rounded-lg hover:bg-primary-hover"
+              >
+                <Download className="w-4 h-4" /> Download
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -241,13 +371,22 @@ export default function EditorPage() {
                 <div className="absolute inset-0 bg-white/80 flex items-center justify-center z-10 rounded-xl">
                   <div className="text-center">
                     <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
-                    <p className="mt-2 text-sm text-gray-600">{statusText}</p>
+                    <p className="mt-2 text-sm text-gray-600 px-4">
+                      {statusText}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-400">
+                      First-time OCR downloads ~4MB of language data
+                    </p>
                   </div>
                 </div>
               )}
               <canvas
                 ref={canvasRef}
                 className="max-w-full max-h-full rounded-lg"
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                style={{ cursor: tool === "rect" ? "crosshair" : "default" }}
               />
             </div>
           )}
@@ -258,18 +397,20 @@ export default function EditorPage() {
             <h3 className="font-semibold text-gray-900">Edit</h3>
             {ocrCount > 0 && (
               <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
-                {ocrCount} detected
+                {ocrCount} selected
               </span>
             )}
           </div>
 
           {hasImage && (
-            <button
-              onClick={handleAddText}
-              className="w-full flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-primary hover:text-primary transition-colors"
-            >
-              <Plus className="w-4 h-4" /> Add Text
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleAddText}
+                className="flex-1 flex items-center justify-center gap-2 py-2 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-primary hover:text-primary transition-colors"
+              >
+                <Plus className="w-4 h-4" /> Add Text
+              </button>
+            </div>
           )}
 
           {selectedText !== "" ? (
@@ -280,7 +421,8 @@ export default function EditorPage() {
                   value={editText}
                   onChange={(e) => setEditText(e.target.value)}
                   className="w-full mt-1 px-3 py-2 border border-border rounded-lg text-sm"
-                  placeholder="Enter new text..."
+                  placeholder="Type replacement text..."
+                  autoFocus
                 />
               </div>
               <div>
@@ -324,17 +466,26 @@ export default function EditorPage() {
               </div>
               <button
                 onClick={handleApplyEdit}
-                className="w-full py-2 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors"
+                className="w-full py-2.5 bg-primary text-white rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors shadow-sm"
               >
-                Apply
+                Replace Text
               </button>
             </>
           ) : (
             hasImage && (
-              <p className="text-sm text-gray-400">
-                Click on text in the image or use{" "}
-                <strong>&quot;Add Text&quot;</strong> above to add new text.
-              </p>
+              <div className="text-sm text-gray-400 space-y-2">
+                <p>
+                  <strong>To edit text in the image:</strong>
+                </p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>Click a blue box (auto-detected text)</li>
+                  <li>
+                    Or click <strong>&quot;Region&quot;</strong> tool above, then
+                    drag over the text
+                  </li>
+                  <li>Type replacement text and click Apply</li>
+                </ol>
+              </div>
             )
           )}
 

@@ -11,13 +11,17 @@ export interface OCRResult {
 // Tesseract.js - client-side OCR
 export async function ocrTesseract(image: File | string): Promise<OCRResult> {
   const Tesseract = await import("tesseract.js");
-  const result = await Tesseract.default.recognize(
-    image,
-    "eng+chi_sim+jpn+kor+rus+fra+spa+ara+hin+por+deu",
-    { logger: () => {} }
-  );
+
+  const worker = await Tesseract.default.createWorker("eng", 1, {
+    logger: (m: any) => console.log("Tesseract:", m.status, m.progress),
+    errorHandler: (err: any) => console.error("Tesseract error:", err),
+  });
+
+  const { data } = await worker.recognize(image);
+  await worker.terminate();
+
   const words: OCRWord[] = [];
-  const blocks = result.data.blocks;
+  const blocks = data.blocks;
   if (blocks) {
     for (const block of blocks) {
       if (!block.paragraphs) continue;
@@ -38,12 +42,14 @@ export async function ocrTesseract(image: File | string): Promise<OCRResult> {
       }
     }
   }
-  return { words, text: result.data.text };
+  return { words, text: data.text };
 }
 
 // OCR.space API fallback
 export async function ocrSpace(image: File): Promise<OCRResult> {
   const apiKey = process.env.NEXT_PUBLIC_OCR_SPACE_API_KEY || "";
+  if (!apiKey) throw new Error("OCR.space API key not configured");
+
   const formData = new FormData();
   formData.append("file", image);
   formData.append("language", "eng");
@@ -81,11 +87,10 @@ export async function ocrSpace(image: File): Promise<OCRResult> {
 
 // Auto: try Tesseract first, fallback to OCR.space
 export async function detectText(image: File): Promise<OCRResult> {
-  try {
-    const result = await ocrTesseract(image);
-    if (result.words.length > 0) return result;
-    throw new Error("No text found");
-  } catch {
-    return ocrSpace(image);
+  const result = await ocrTesseract(image);
+  if (result.words.length > 0) {
+    console.log(`OCR found ${result.words.length} words`);
+    return result;
   }
+  throw new Error("No text found by OCR");
 }
