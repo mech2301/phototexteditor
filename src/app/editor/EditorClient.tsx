@@ -55,6 +55,7 @@ export default function EditorClient() {
   const drawStart = useRef<{ x: number; y: number } | null>(null);
   const drawRectRef = useRef<any>(null);
   const fileRef = useRef<File | null>(null);
+  const imageScaleRef = useRef(1);
 
   const getFabric = useCallback(async () => {
     const fabric = await import("fabric");
@@ -122,6 +123,7 @@ export default function EditorClient() {
           imgEl.onload = () => {
             if (disposed) return resolve();
             const s = Math.min(w / imgEl.width, h / imgEl.height) * 0.9;
+            imageScaleRef.current = s;
             const fimg = new FabricImage(imgEl, {
               scaleX: s, scaleY: s,
               left: (w - imgEl.width * s) / 2,
@@ -155,11 +157,12 @@ export default function EditorClient() {
           const { detectText } = await getOCR();
           const result = await detectText(file);
           if (!disposed && result.words.length > 0) {
+            const sc = imageScaleRef.current;
             for (const word of result.words) {
               const rect = new FabricRect({
-                left: word.bbox.x0, top: word.bbox.y0,
-                width: Math.max(word.bbox.x1 - word.bbox.x0, 10),
-                height: Math.max(word.bbox.y1 - word.bbox.y0, 10),
+                left: word.bbox.x0 * sc, top: word.bbox.y0 * sc,
+                width: Math.max((word.bbox.x1 - word.bbox.x0) * sc, 10),
+                height: Math.max((word.bbox.y1 - word.bbox.y0) * sc, 10),
                 fill: "rgba(99,102,241,0.12)", stroke: "#6366f1", strokeWidth: 2,
                 strokeUniform: true, selectable: true, evented: true,
               });
