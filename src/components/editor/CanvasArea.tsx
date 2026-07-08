@@ -74,7 +74,7 @@ export default function CanvasArea({
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          overflow: "hidden",
+          overflow: "auto",
         }}
       >
         <Box sx={{ position: "relative", maxWidth: "100%", maxHeight: "100%" }}>
@@ -103,8 +103,6 @@ export default function CanvasArea({
             onMouseUp={onMouseUp}
             style={{
               cursor,
-              maxWidth: "100%",
-              maxHeight: "100%",
               borderRadius: 4,
               boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
             }}

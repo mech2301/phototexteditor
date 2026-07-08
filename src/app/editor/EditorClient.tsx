@@ -108,41 +108,45 @@ export default function EditorClient() {
 
         const parent = canvasEl.parentElement;
         const w = parent?.clientWidth || 800;
-        const availableH = window.innerHeight - 56 - 48;
-        const h = Math.max(Math.min(w * 0.75, availableH), 200);
+
+        // Load image first to get its natural dimensions
+        const imgEl = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("Failed to load image"));
+          img.src = url;
+        });
+        if (disposed) return;
+
+        // Scale to fill width, scroll vertically if needed
+        const viewH = window.innerHeight;
+        const s = (w / imgEl.width) * 0.95;
+        const imgDisplayH = imgEl.height * s;
+        const minH = Math.max(viewH - 56 - 48, 400);
+        const canvasH = Math.max(Math.ceil(imgDisplayH) + 40, minH);
+
         canvasEl.width = w;
-        canvasEl.height = h;
+        canvasEl.height = canvasH;
 
         const canvas = new FabricCanvas(canvasEl, {
-          width: w, height: h, backgroundColor: "#ffffff", preserveObjectStacking: true,
+          width: w, height: canvasH, backgroundColor: "#ffffff", preserveObjectStacking: true,
         });
         fabricRef.current = canvas;
 
-        await new Promise<void>((resolve, reject) => {
-          const imgEl = new Image();
-          imgEl.crossOrigin = "anonymous";
-          imgEl.onload = () => {
-            if (disposed) return resolve();
-            const s = Math.min(w / imgEl.width, h / imgEl.height) * 0.9;
-            imageInfoRef.current = {
-              scale: s,
-              left: (w - imgEl.width * s) / 2,
-              top: (h - imgEl.height * s) / 2,
-            };
-            const fimg = new FabricImage(imgEl, {
-              scaleX: s, scaleY: s,
-              left: (w - imgEl.width * s) / 2,
-              top: (h - imgEl.height * s) / 2,
-            });
-            canvas.clear();
-            canvas.add(fimg);
-            canvas.renderAll();
-            resolve();
-          };
-          imgEl.onerror = () => reject(new Error("Failed to load image"));
-          imgEl.src = url;
+        imageInfoRef.current = {
+          scale: s,
+          left: (w - imgEl.width * s) / 2,
+          top: (canvasH - imgEl.height * s) / 2,
+        };
+        const fimg = new FabricImage(imgEl, {
+          scaleX: s, scaleY: s,
+          left: (w - imgEl.width * s) / 2,
+          top: (canvasH - imgEl.height * s) / 2,
         });
-        if (disposed) return;
+        canvas.clear();
+        canvas.add(fimg);
+        canvas.renderAll();
 
         canvas.on("selection:created", (e: any) => {
           const o = e.selected?.[0];
