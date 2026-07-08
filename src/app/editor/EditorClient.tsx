@@ -55,7 +55,7 @@ export default function EditorClient() {
   const drawStart = useRef<{ x: number; y: number } | null>(null);
   const drawRectRef = useRef<any>(null);
   const fileRef = useRef<File | null>(null);
-  const imageScaleRef = useRef(1);
+  const imageInfoRef = useRef({ scale: 1, left: 0, top: 0 });
 
   const getFabric = useCallback(async () => {
     const fabric = await import("fabric");
@@ -108,7 +108,8 @@ export default function EditorClient() {
 
         const parent = canvasEl.parentElement;
         const w = parent?.clientWidth || 800;
-        const h = Math.min(w * 0.75, 600);
+        const availableH = window.innerHeight - 56 - 48;
+        const h = Math.max(Math.min(w * 0.75, availableH), 200);
         canvasEl.width = w;
         canvasEl.height = h;
 
@@ -123,7 +124,11 @@ export default function EditorClient() {
           imgEl.onload = () => {
             if (disposed) return resolve();
             const s = Math.min(w / imgEl.width, h / imgEl.height) * 0.9;
-            imageScaleRef.current = s;
+            imageInfoRef.current = {
+              scale: s,
+              left: (w - imgEl.width * s) / 2,
+              top: (h - imgEl.height * s) / 2,
+            };
             const fimg = new FabricImage(imgEl, {
               scaleX: s, scaleY: s,
               left: (w - imgEl.width * s) / 2,
@@ -157,10 +162,10 @@ export default function EditorClient() {
           const { detectText } = await getOCR();
           const result = await detectText(file);
           if (!disposed && result.words.length > 0) {
-            const sc = imageScaleRef.current;
+            const { scale: sc, left: imgOffX, top: imgOffY } = imageInfoRef.current;
             for (const word of result.words) {
               const rect = new FabricRect({
-                left: word.bbox.x0 * sc, top: word.bbox.y0 * sc,
+                left: word.bbox.x0 * sc + imgOffX, top: word.bbox.y0 * sc + imgOffY,
                 width: Math.max((word.bbox.x1 - word.bbox.x0) * sc, 10),
                 height: Math.max((word.bbox.y1 - word.bbox.y0) * sc, 10),
                 fill: "rgba(99,102,241,0.12)", stroke: "#6366f1", strokeWidth: 2,

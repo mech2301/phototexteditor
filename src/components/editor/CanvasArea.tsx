@@ -68,13 +68,12 @@ export default function CanvasArea({
       }}
     >
       {/* Canvas */}
-      <Box
+      <Box id="canvas-container"
         sx={{
           flex: 1,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          p: 2,
           overflow: "hidden",
         }}
       >
