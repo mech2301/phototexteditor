@@ -71,8 +71,8 @@ export default function EditorClient() {
     setSelectedText(obj.originalText || obj.text || "");
     setEditText(obj.originalText || obj.text || "");
     setFontFamily(obj.fontFamily || "Arial");
-    setFontSize(obj.fontSize || 24);
-    setFontColor(obj.fill || "#000000");
+    setFontSize(obj.fontSize || Math.round((obj.height || 24) * 0.75) || 24);
+    setFontColor((!obj.isBbox && obj.fill) || "#000000");
     setFontWeight(obj.fontWeight ?? 400);
     setItalic(obj.fontStyle === "italic");
     setUnderline(!!obj.underline);
