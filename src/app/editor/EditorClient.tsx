@@ -71,7 +71,7 @@ export default function EditorClient() {
     setSelectedText(obj.originalText || obj.text || "");
     setEditText(obj.originalText || obj.text || "");
     setFontFamily(obj.fontFamily || "Arial");
-    setFontSize(obj.fontSize || Math.round((obj.height || 24) * 0.75) || 24);
+    setFontSize(obj.fontSize || Math.round((obj.height || 24)) || 24);
     setFontColor((!obj.isBbox && obj.fill) || "#000000");
     setFontWeight(obj.fontWeight ?? 400);
     setItalic(obj.fontStyle === "italic");
@@ -282,13 +282,63 @@ export default function EditorClient() {
     const active = canvas.getActiveObject();
     if (!active) return;
     const fabric = await getFabric();
-    const { Textbox: FabricTextbox, Shadow: FabricShadow } = fabric;
+    const { Textbox: FabricTextbox, Shadow: FabricShadow, Image: FabricImage } = fabric;
 
     if (active.isBbox) {
+      const bboxLeft = Math.round(active.left || 0);
+      const bboxTop = Math.round(active.top || 0);
+      const bboxW = Math.round((active.width || 1) * (active.scaleX || 1));
+      const bboxH = Math.round((active.height || 1) * (active.scaleY || 1));
+
+      // Blur patch to cover the old text in the image
+      if (canvasRef.current && bboxW > 0 && bboxH > 0) {
+        try {
+          const pad = 4;
+          const sw = Math.min(bboxW + pad * 2, canvasRef.current.width - bboxLeft);
+          const sh = Math.min(bboxH + pad * 2, canvasRef.current.height - bboxTop);
+          const sx = Math.max(bboxLeft - pad, 0);
+          const sy = Math.max(bboxTop - pad, 0);
+          const patch = document.createElement("canvas");
+          patch.width = sw;
+          patch.height = sh;
+          const pctx = patch.getContext("2d")!;
+          pctx.drawImage(canvasRef.current, sx, sy, sw, sh, 0, 0, sw, sh);
+          const imgData = pctx.getImageData(0, 0, sw, sh);
+          const d = imgData.data;
+          const copy = new Uint8ClampedArray(d);
+          const kern = 3;
+          for (let py = 0; py < sh; py++) {
+            for (let px = 0; px < sw; px++) {
+              let r = 0, g = 0, b = 0, n = 0;
+              for (let dy = -kern; dy <= kern; dy++) {
+                for (let dx = -kern; dx <= kern; dx++) {
+                  const cx = px + dx, cy = py + dy;
+                  if (cx >= 0 && cx < sw && cy >= 0 && cy < sh) {
+                    const i = (cy * sw + cx) * 4;
+                    r += copy[i]; g += copy[i+1]; b += copy[i+2]; n++;
+                  }
+                }
+              }
+              const i = (py * sw + px) * 4;
+              d[i] = r / n; d[i+1] = g / n; d[i+2] = b / n;
+            }
+          }
+          pctx.putImageData(imgData, 0, 0);
+          const patchImg = new FabricImage(patch, {
+            left: sx, top: sy,
+            selectable: false, evented: false,
+          });
+          canvas.add(patchImg);
+          canvas.sendToBack(patchImg);
+        } catch (e) {
+          console.warn("Blur patch failed, proceeding without:", e);
+        }
+      }
+
       const tb = new FabricTextbox(editText, {
-        left: (active.left || 0) + 2,
-        top: (active.top || 0) + 2,
-        width: Math.max(((active.width || 100) * (active.scaleX || 1)) - 4, 50),
+        left: bboxLeft + 2,
+        top: bboxTop + 2,
+        width: Math.max(bboxW - 4, 50),
         fontSize, fontFamily, fill: fontColor,
         fontWeight, fontStyle: italic ? "italic" : "normal",
         underline, linethrough: strikethrough,
