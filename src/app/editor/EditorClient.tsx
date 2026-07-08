@@ -67,12 +67,30 @@ export default function EditorClient() {
     return ocr;
   }, []);
 
+  const sampleTextColor = useCallback((obj: any): string => {
+    if (!obj.isBbox || !canvasRef.current) return "#000000";
+    const ctx = canvasRef.current.getContext("2d");
+    if (!ctx) return "#000000";
+    const l = Math.round(obj.left || 0), t = Math.round(obj.top || 0);
+    const w = Math.round((obj.width || 10) * (obj.scaleX || 1));
+    const h = Math.round((obj.height || 10) * (obj.scaleY || 1));
+    if (w < 2 || h < 2) return "#000000";
+    const imgData = ctx.getImageData(l, t, w, h);
+    const d = imgData.data;
+    let totalLum = 0, count = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      totalLum += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      count++;
+    }
+    return totalLum / count > 140 ? "#000000" : "#FFFFFF";
+  }, []);
+
   const syncFromObj = useCallback((obj: any) => {
     setSelectedText(obj.originalText || obj.text || "");
     setEditText(obj.originalText || obj.text || "");
     setFontFamily(obj.fontFamily || "Arial");
     setFontSize(obj.fontSize || Math.round((obj.height || 24)) || 24);
-    setFontColor((!obj.isBbox && obj.fill) || "#000000");
+    setFontColor(obj.isBbox ? sampleTextColor(obj) : (obj.fill || "#000000"));
     setFontWeight(obj.fontWeight ?? 400);
     setItalic(obj.fontStyle === "italic");
     setUnderline(!!obj.underline);
