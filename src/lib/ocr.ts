@@ -8,32 +8,6 @@ export interface OCRResult {
   text: string;
 }
 
-function downscaleImage(file: File, maxDim: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      let w = img.naturalWidth;
-      let h = img.naturalHeight;
-      if (w <= maxDim && h <= maxDim) {
-        resolve(url);
-        return;
-      }
-      const scale = Math.min(maxDim / w, maxDim / h);
-      w = Math.round(w * scale);
-      h = Math.round(h * scale);
-      const c = document.createElement("canvas");
-      c.width = w;
-      c.height = h;
-      c.getContext("2d")!.drawImage(img, 0, 0, w, h);
-      URL.revokeObjectURL(url);
-      resolve(c.toDataURL("image/jpeg", 0.9));
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to decode image")); };
-    img.src = url;
-  });
-}
-
 // Server-side OCR via API route
 export async function ocrServer(image: File): Promise<OCRResult> {
   const formData = new FormData();
@@ -52,13 +26,6 @@ export async function ocrServer(image: File): Promise<OCRResult> {
 
 // Client-side Tesseract.js (primary path)
 export async function ocrTesseract(image: File): Promise<OCRResult> {
-  let imgSrc: string | File = image;
-  try {
-    imgSrc = await downscaleImage(image, 2000);
-  } catch {
-    imgSrc = image;
-  }
-
   const { createWorker, PSM } = await import("tesseract.js");
 
   const worker = await createWorker("eng", 1, {
@@ -67,12 +34,8 @@ export async function ocrTesseract(image: File): Promise<OCRResult> {
   });
 
   await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
-  const { data } = await worker.recognize(imgSrc, {}, { text: true, blocks: true });
+  const { data } = await worker.recognize(image, {}, { text: true, blocks: true });
   await worker.terminate();
-
-  if (typeof imgSrc === "string" && imgSrc.startsWith("blob:")) {
-    URL.revokeObjectURL(imgSrc);
-  }
 
   const words: OCRWord[] = [];
   if (data.blocks) {
