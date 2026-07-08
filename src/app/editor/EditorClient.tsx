@@ -154,11 +154,10 @@ export default function EditorClient() {
         const fonts = await getGoogleFonts();
         const sans = fonts.find(f => f.category === "sans-serif");
         if (sans) detectedFamily = sans.family;
-        // Load the matched font before it is used in rendering
-        await document.fonts.load(`400 1em "${detectedFamily}"`);
-        await document.fonts.ready;
       } catch {}
-      setFontFamily(detectedFamily);
+      // Use a CSS font-family stack so the browser falls back to a system
+      // sans-serif if the detected Google Font is not installed on the device.
+      setFontFamily(detectedFamily + ", Arial, Helvetica, sans-serif");
       setFontSize(detectedSize);
     } else {
       detectedColor = obj.fill || "#000000";
@@ -388,12 +387,6 @@ export default function EditorClient() {
     const { Textbox: FabricTextbox, Shadow: FabricShadow, Rect: FabricRect } = fabric;
 
     if (active.isBbox) {
-      // Ensure the target font is loaded before measuring / rendering
-      try {
-        await document.fonts.load(`400 1em "${fontFamily}"`);
-        await document.fonts.ready;
-      } catch {}
-
       const bboxLeft = Math.round(active.left || 0);
       const bboxTop = Math.round(active.top || 0);
       const bboxW = Math.round((active.width || 1) * (active.scaleX || 1));
