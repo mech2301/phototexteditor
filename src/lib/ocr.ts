@@ -59,13 +59,14 @@ export async function ocrTesseract(image: File): Promise<OCRResult> {
     imgSrc = image;
   }
 
-  const { createWorker } = await import("tesseract.js");
+  const { createWorker, PSM } = await import("tesseract.js");
 
   const worker = await createWorker("eng", 1, {
     logger: (m: any) => console.log("Tesseract:", m.status, m.progress),
     errorHandler: (err: any) => console.error("Tesseract error:", err),
   });
 
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.AUTO });
   const { data } = await worker.recognize(imgSrc, {}, { text: true, blocks: true });
   await worker.terminate();
 

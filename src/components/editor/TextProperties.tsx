@@ -405,6 +405,47 @@ export default function TextProperties({
         {selectedText || "No Text Selected"}
       </Typography>
 
+      {/* Edit Text */}
+      <Typography variant="caption" sx={{ fontWeight: 600, mb: 0.3, display: "block" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          Replace With
+          <Tooltip title="Type the replacement text">
+            <HelpOutlined sx={{ fontSize: 14, color: "text.disabled" }} />
+          </Tooltip>
+        </Box>
+      </Typography>
+      <Box sx={{ display: "flex", gap: 0.5, mb: 1.5 }}>
+        <Input
+          value={editText}
+          onChange={(e) => onEditTextChange(e.target.value)}
+          placeholder={selectedText ? "Type replacement text\u2026" : "Select text to edit"}
+          disabled={!selectedText}
+          fullWidth
+          multiline
+          minRows={2}
+          maxRows={4}
+          sx={{ fontSize: 13, px: 1, py: 0.5, border: "1px solid", borderColor: "divider", borderRadius: 1 }}
+        />
+      </Box>
+
+      {/* Apply Button */}
+      <Button
+        fullWidth
+        variant="contained"
+        disabled={!selectedText || !editText}
+        onClick={onApply}
+        sx={{
+          textTransform: "none",
+          fontSize: 13,
+          mb: 1.5,
+          bgcolor: "#FF6583",
+          "&:hover": { bgcolor: "#e55a76" },
+          "&.Mui-disabled": { bgcolor: "action.disabledBackground" },
+        }}
+      >
+        Apply
+      </Button>
+
       {/* Shadow */}
       <Typography variant="caption" sx={{ fontWeight: 600, mb: 0.3, display: "block" }}>
         Shadow
