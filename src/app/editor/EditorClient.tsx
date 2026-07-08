@@ -137,17 +137,43 @@ export default function EditorClient() {
   }, []);
 
   const syncFromObj = useCallback(async (obj: any) => {
-    setSelectedText(obj.originalText || obj.text || "");
-    setEditText(obj.originalText || obj.text || "");
-    setFontFamily(obj.fontFamily || "Arial");
-    setFontSize(obj.fontSize || Math.round((obj.height || 24) * 1.4) || 24);
+    const origText = obj.originalText || obj.text || "";
+    setSelectedText(origText);
+    setEditText(origText);
+
+    let detectedFamily = "Arial";
+    let detectedSize = Math.round((obj.height || 24) * 1.4) || 24;
+    let detectedColor = "#000000";
+    let detectedWeight = 400;
+
     if (obj.isBbox && imageUrl) {
-      try { setFontColor(await sampleTextColor(obj, imageUrl)); } catch { setFontColor("#000000"); }
-      try { setFontWeight(await estimateFontWeight(obj, imageUrl)); } catch { setFontWeight(400); }
+      try { detectedColor = await sampleTextColor(obj, imageUrl); setFontColor(detectedColor); } catch { setFontColor("#000000"); }
+      try { detectedWeight = await estimateFontWeight(obj, imageUrl); setFontWeight(detectedWeight); } catch { setFontWeight(400); }
+      try {
+        const { getGoogleFonts } = await import("@/lib/fonts");
+        const fonts = await getGoogleFonts();
+        const sans = fonts.find(f => f.category === "sans-serif");
+        if (sans) detectedFamily = sans.family;
+      } catch {}
+      setFontFamily(detectedFamily);
+      setFontSize(detectedSize);
     } else {
-      setFontColor(obj.fill || "#000000");
-      setFontWeight(obj.fontWeight ?? 400);
+      detectedColor = obj.fill || "#000000";
+      detectedWeight = obj.fontWeight ?? 400;
+      detectedFamily = obj.fontFamily || "Arial";
+      detectedSize = obj.fontSize || Math.round((obj.height || 24) * 1.4) || 24;
+      setFontColor(detectedColor);
+      setFontWeight(detectedWeight);
+      setFontFamily(detectedFamily);
+      setFontSize(detectedSize);
     }
+
+    // Store all analyzed properties on the Fabric object for cloning in handleApply
+    obj._fontFamily = detectedFamily;
+    obj._fontSize = detectedSize;
+    obj._fontColor = detectedColor;
+    obj._fontWeight = detectedWeight;
+
     setItalic(obj.fontStyle === "italic");
     setUnderline(!!obj.underline);
     setStrikethrough(!!obj.linethrough);
@@ -404,24 +430,33 @@ export default function EditorClient() {
         textW = tempCtx.measureText(editText || " ").width;
       }
 
-      const bboxAngle = active.angle || 0;
-
       const tb = new FabricTextbox(editText, {
+        // Position and size — cloned from bbox native geometry
         left: bboxLeft,
         top: bboxTop,
         width: Math.max(bboxW, 10),
-        fontSize: fittedSize, fontFamily, fill: fontColor, padding: 0, lineHeight: 1,
+        // Font properties — from React state (set by syncFromObj + user edits)
+        fontSize: fittedSize, fontFamily, fill: fontColor, padding: 0,
         fontWeight, fontStyle: italic ? "italic" : "normal",
         underline, linethrough: strikethrough,
         textAlign, charSpacing,
-        opacity: opacity / 100, strokeWidth,
-        stroke: strokeWidth > 0 ? fontColor : undefined,
-        angle: bboxAngle,
+        // Cloned from the original bbox object's native Fabric properties
+        angle: Math.round(active.angle || 0),
+        scaleX: active.scaleX ?? 1,
+        scaleY: active.scaleY ?? 1,
+        flipX: !!active.flipX,
+        flipY: !!active.flipY,
+        skewX: active.skewX ?? 0,
+        skewY: active.skewY ?? 0,
+        opacity: active.opacity ?? 1,
+        strokeWidth, stroke: strokeWidth > 0 ? fontColor : undefined,
+        lineHeight: 1,
         borderColor: "#FF6583", cornerColor: "#FF6583", cornerSize: 8,
         transparentCorners: false, editable: true,
       });
-      if (shadowEnabled) {
-        try { tb.set("shadow", new FabricShadow({ color: "rgba(0,0,0,0.3)", blur: 10, offsetX: 5, offsetY: 5 })); } catch {}
+      // Clone shadow from the original object
+      if (active.shadow) {
+        try { tb.set("shadow", new FabricShadow(active.shadow)); } catch {}
       }
       canvas.remove(active);
       canvas.add(tb);
