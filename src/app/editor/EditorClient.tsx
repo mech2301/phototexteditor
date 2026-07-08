@@ -110,7 +110,7 @@ export default function EditorClient() {
     setSelectedText(obj.originalText || obj.text || "");
     setEditText(obj.originalText || obj.text || "");
     setFontFamily(obj.fontFamily || "Arial");
-    setFontSize(obj.fontSize || Math.round((obj.height || 24) * 1.2) || 24);
+    setFontSize(obj.fontSize || Math.round((obj.height || 24) * 1.4) || 24);
     if (obj.isBbox && imageUrl) {
       try { setFontColor(await sampleTextColor(obj, imageUrl)); } catch { setFontColor("#000000"); }
     } else {
@@ -325,7 +325,7 @@ export default function EditorClient() {
     const active = canvas.getActiveObject();
     if (!active) return;
     const fabric = await getFabric();
-    const { Textbox: FabricTextbox, Shadow: FabricShadow, Image: FabricImage } = fabric;
+    const { Textbox: FabricTextbox, Shadow: FabricShadow, Rect: FabricRect } = fabric;
 
     if (active.isBbox) {
       const bboxLeft = Math.round(active.left || 0);
@@ -333,56 +333,39 @@ export default function EditorClient() {
       const bboxW = Math.round((active.width || 1) * (active.scaleX || 1));
       const bboxH = Math.round((active.height || 1) * (active.scaleY || 1));
 
-      // Blur patch to cover the old text in the image
-      if (canvasRef.current && bboxW > 0 && bboxH > 0) {
+      // Background-colored rect to cover old text (sample from original image)
+      if (imageUrl) {
         try {
-          const pad = 4;
-          const sw = Math.min(bboxW + pad * 2, canvasRef.current.width - bboxLeft);
-          const sh = Math.min(bboxH + pad * 2, canvasRef.current.height - bboxTop);
-          const sx = Math.max(bboxLeft - pad, 0);
-          const sy = Math.max(bboxTop - pad, 0);
-          const patch = document.createElement("canvas");
-          patch.width = sw;
-          patch.height = sh;
-          const pctx = patch.getContext("2d")!;
-          pctx.drawImage(canvasRef.current, sx, sy, sw, sh, 0, 0, sw, sh);
-          const imgData = pctx.getImageData(0, 0, sw, sh);
-          const d = imgData.data;
-          const copy = new Uint8ClampedArray(d);
-          const kern = 3;
-          for (let py = 0; py < sh; py++) {
-            for (let px = 0; px < sw; px++) {
-              let r = 0, g = 0, b = 0, n = 0;
-              for (let dy = -kern; dy <= kern; dy++) {
-                for (let dx = -kern; dx <= kern; dx++) {
-                  const cx = px + dx, cy = py + dy;
-                  if (cx >= 0 && cx < sw && cy >= 0 && cy < sh) {
-                    const i = (cy * sw + cx) * 4;
-                    r += copy[i]; g += copy[i+1]; b += copy[i+2]; n++;
-                  }
-                }
-              }
-              const i = (py * sw + px) * 4;
-              d[i] = r / n; d[i+1] = g / n; d[i+2] = b / n;
-            }
-          }
-          pctx.putImageData(imgData, 0, 0);
-          const patchImg = new FabricImage(patch, {
-            left: sx, top: sy,
-            selectable: false, evented: false,
+          const { scale: sc, left: imgOffX, top: imgOffY } = imageInfoRef.current;
+          const origX = Math.max(Math.round((bboxLeft - imgOffX) / sc) - 1, 0);
+          const origY = Math.max(Math.round((bboxTop - imgOffY) / sc) - 1, 0);
+          const origW = Math.max(Math.round(bboxW / sc) + 2, 4);
+          const origH = Math.max(Math.round(bboxH / sc) + 2, 4);
+          const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = imageUrl!;
           });
-          canvas.add(patchImg);
-          canvas.sendToBack(patchImg);
-        } catch (e) {
-          console.warn("Blur patch failed, proceeding without:", e);
-        }
+          const off = document.createElement("canvas");
+          off.width = origW; off.height = origH;
+          const octx = off.getContext("2d")!;
+          octx.drawImage(img, origX, origY, origW, origH, 0, 0, origW, origH);
+          const d = octx.getImageData(0, 0, origW, origH).data;
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i+1]; b += d[i+2]; n++; }
+          const bgColor = "#" + [r, g, b].map(v => Math.round(v/n).toString(16).padStart(2,"0")).join("");
+          const cover = new FabricRect({
+            left: bboxLeft - 1, top: bboxTop - 1, width: bboxW + 2, height: bboxH + 2,
+            fill: bgColor, selectable: false, evented: false,
+          });
+          canvas.add(cover);
+          canvas.sendToBack(cover);
+        } catch (e) { console.warn("Cover rect failed:", e); }
       }
 
       const tb = new FabricTextbox(editText, {
-        left: bboxLeft + 2,
-        top: bboxTop + 2,
-        width: Math.max(bboxW - 4, 50),
-        fontSize, fontFamily, fill: fontColor,
+        left: bboxLeft,
+        top: bboxTop,
+        width: Math.max(bboxW, 10),
+        fontSize, fontFamily, fill: fontColor, padding: 0,
         fontWeight, fontStyle: italic ? "italic" : "normal",
         underline, linethrough: strikethrough,
         textAlign, lineHeight, charSpacing,
@@ -419,7 +402,7 @@ export default function EditorClient() {
       }
     }
     canvas.renderAll();
-  }, [editText, fontSize, fontFamily, fontColor, fontWeight, italic, underline, strikethrough, textAlign, lineHeight, charSpacing, opacity, strokeWidth, shadowEnabled, getFabric]);
+  }, [editText, fontSize, fontFamily, fontColor, fontWeight, italic, underline, strikethrough, textAlign, lineHeight, charSpacing, opacity, strokeWidth, shadowEnabled, getFabric, imageUrl]);
 
   const handleAddText = useCallback(async () => {
     const canvas = fabricRef.current;
