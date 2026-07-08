@@ -17,7 +17,8 @@ export async function ocrTesseract(image: File | string): Promise<OCRResult> {
     errorHandler: (err: any) => console.error("Tesseract error:", err),
   });
 
-  const { data } = await worker.recognize(image);
+  // blocks:true is required in v7 to get word-level bounding boxes
+  const { data } = await worker.recognize(image, {}, { text: true, blocks: true });
   await worker.terminate();
 
   const words: OCRWord[] = [];
