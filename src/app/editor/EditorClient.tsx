@@ -106,6 +106,36 @@ export default function EditorClient() {
     }
   }, []);
 
+  const estimateFontWeight = useCallback(async (obj: any, imgUrl: string): Promise<number> => {
+    if (!obj.isBbox || !imgUrl) return 400;
+    const { scale: sc, left: imgOffX, top: imgOffY } = imageInfoRef.current;
+    const origX = Math.round((obj.left - imgOffX) / sc);
+    const origY = Math.round((obj.top - imgOffY) / sc);
+    const origW = Math.max(Math.round((obj.width * obj.scaleX) / sc), 4);
+    const origH = Math.max(Math.round((obj.height * obj.scaleY) / sc), 4);
+    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = imgUrl;
+    });
+    const off = document.createElement("canvas");
+    off.width = origW; off.height = origH;
+    const octx = off.getContext("2d")!;
+    octx.drawImage(img, origX, origY, origW, origH, 0, 0, origW, origH);
+    const d = octx.getImageData(0, 0, origW, origH).data;
+    let lumSum = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      lumSum += 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+    }
+    const bgLum = lumSum / (d.length / 4);
+    let textPixels = 0;
+    const thr = 30;
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+      if (bgLum > 140 ? lum < bgLum - thr : lum > bgLum + thr) textPixels++;
+    }
+    const ratio = textPixels / (origW * origH);
+    return ratio > 0.45 ? 700 : ratio > 0.30 ? 500 : 400;
+  }, []);
+
   const syncFromObj = useCallback(async (obj: any) => {
     setSelectedText(obj.originalText || obj.text || "");
     setEditText(obj.originalText || obj.text || "");
@@ -113,10 +143,11 @@ export default function EditorClient() {
     setFontSize(obj.fontSize || Math.round((obj.height || 24) * 1.4) || 24);
     if (obj.isBbox && imageUrl) {
       try { setFontColor(await sampleTextColor(obj, imageUrl)); } catch { setFontColor("#000000"); }
+      try { setFontWeight(await estimateFontWeight(obj, imageUrl)); } catch { setFontWeight(400); }
     } else {
       setFontColor(obj.fill || "#000000");
+      setFontWeight(obj.fontWeight ?? 400);
     }
-    setFontWeight(obj.fontWeight ?? 400);
     setItalic(obj.fontStyle === "italic");
     setUnderline(!!obj.underline);
     setStrikethrough(!!obj.linethrough);
@@ -361,16 +392,31 @@ export default function EditorClient() {
         } catch (e) { console.warn("Cover rect failed:", e); }
       }
 
+      // Auto-fit: shrink fontSize if replacement text overflows bbox width
+      let fittedSize = fontSize;
+      const tempCtx = document.createElement("canvas").getContext("2d")!;
+      const weightStr = fontWeight >= 700 ? "bold" : fontWeight >= 500 ? "500" : "normal";
+      tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamily}`;
+      let textW = tempCtx.measureText(editText || " ").width;
+      while (textW > Math.max(bboxW - 4, 1) && fittedSize > 8) {
+        fittedSize -= 1;
+        tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamily}`;
+        textW = tempCtx.measureText(editText || " ").width;
+      }
+
+      const bboxAngle = active.angle || 0;
+
       const tb = new FabricTextbox(editText, {
         left: bboxLeft,
         top: bboxTop,
         width: Math.max(bboxW, 10),
-        fontSize, fontFamily, fill: fontColor, padding: 0,
+        fontSize: fittedSize, fontFamily, fill: fontColor, padding: 0, lineHeight: 1,
         fontWeight, fontStyle: italic ? "italic" : "normal",
         underline, linethrough: strikethrough,
-        textAlign, lineHeight, charSpacing,
+        textAlign, charSpacing,
         opacity: opacity / 100, strokeWidth,
         stroke: strokeWidth > 0 ? fontColor : undefined,
+        angle: bboxAngle,
         borderColor: "#FF6583", cornerColor: "#FF6583", cornerSize: 8,
         transparentCorners: false, editable: true,
       });
