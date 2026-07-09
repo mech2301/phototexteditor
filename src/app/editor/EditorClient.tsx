@@ -484,17 +484,18 @@ export default function EditorClient() {
       if (active.shadow) {
         try { tb.set("shadow", new FabricShadow(active.shadow)); } catch {}
       }
-      // Debug: log internal text positioning for this textbox
+      // Debug: log actual absolute pixel position of the text cap-height
       try {
         const h = tb.height;
         const lh0 = (tb as any).getHeightOfLineImpl(0);
         const fsf = 0.222;
-        const fsm = 1.13;
         const internalBase = -h / 2 + lh0 * (1 - fsf);
         const internalCapTop = internalBase - detectedSize * 0.716;
         const capTopFromTop = internalCapTop + h / 2;
-        const absCapTop = tb.top + capTopFromTop;
-        console.warn(`[textbox pos] tb.top=${tb.top} h=${h} lh0=${lh0} intBase=${Math.round(internalBase*100)/100} capFromTop=${Math.round(capTopFromTop)} absCapTop=${Math.round(absCapTop)} bboxTop=${Math.round(bboxTop)} bboxBot=${Math.round(bboxTop+bboxH)}`);
+        // With originY:center, tb.top is the CENTER, so textbox top = tb.top - h/2
+        const textboxTop = tb.top - h / 2;
+        const absCapTop = textboxTop + capTopFromTop;
+        console.warn(`[textbox pos] textboxTop=${Math.round(textboxTop)} capTop=${Math.round(absCapTop)} bboxTop=${Math.round(bboxTop)} bboxBot=${Math.round(bboxTop+bboxH)}`);
       } catch {}
 
       // Debug: compare every Fabric property between bbox and replacement
