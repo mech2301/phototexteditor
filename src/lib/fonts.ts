@@ -25,9 +25,14 @@ export async function getGoogleFonts(): Promise<GoogleFont[]> {
     fontCache = [
       { family: "Arial", category: "sans-serif", variants: ["regular", "bold", "italic"] },
       { family: "Times New Roman", category: "serif", variants: ["regular", "bold", "italic"] },
+      { family: "Helvetica", category: "sans-serif", variants: ["regular", "bold"] },
       { family: "Courier New", category: "monospace", variants: ["regular", "bold"] },
       { family: "Georgia", category: "serif", variants: ["regular", "bold", "italic"] },
       { family: "Verdana", category: "sans-serif", variants: ["regular", "bold"] },
+      { family: "Trebuchet MS", category: "sans-serif", variants: ["regular", "bold"] },
+      { family: "Impact", category: "sans-serif", variants: ["regular"] },
+      { family: "Comic Sans MS", category: "script", variants: ["regular", "bold"] },
+      { family: "Palatino Linotype", category: "serif", variants: ["regular", "bold"] },
     ];
   }
   return fontCache!;

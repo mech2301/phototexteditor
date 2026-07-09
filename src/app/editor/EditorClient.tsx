@@ -152,8 +152,17 @@ export default function EditorClient() {
       try {
         const { getGoogleFonts } = await import("@/lib/fonts");
         const fonts = await getGoogleFonts();
-        const sans = fonts.find(f => f.category === "sans-serif");
-        if (sans) detectedFamily = sans.family;
+        // Try each category in priority order; pick the first font that's
+        // actually installed on the user's system (checked via Font API).
+        const categories = ["sans-serif", "serif", "monospace", "script", "display"];
+        const sorted = [...categories.flatMap(cat => fonts.filter(f => f.category === cat)), ...fonts];
+        for (const f of sorted) {
+          try {
+            if (document.fonts && document.fonts.check(`12px "${f.family}"`)) {
+              detectedFamily = f.family; break;
+            }
+          } catch { /* Font API not supported */ }
+        }
       } catch {}
       // Store only the family name in React state so the MUI Select
       // dropdown (which has simple names like "Arial") can match it.
@@ -400,14 +409,10 @@ export default function EditorClient() {
       const bboxW = Math.round((active.width || 1) * (active.scaleX || 1));
       const bboxH = Math.round((active.height || 1) * (active.scaleY || 1));
 
-      // Always read detected properties from the Fabric bbox object itself,
-      // NOT from React state (which may be stale or from a different bbox).
       const detectedFamily = (active as any)._fontFamily || "Arial";
-      const detectedSize = (active as any)._fontSize || Math.round(bboxH * 1.4) || 24;
       const detectedColor = (active as any)._fontColor || "#000000";
       const detectedWeight = (active as any)._fontWeight || 400;
 
-      // Background-colored rect to cover old text (sample from original image)
       if (imageUrl) {
         try {
           const { scale: sc, left: imgOffX, top: imgOffY } = imageInfoRef.current;
@@ -431,37 +436,59 @@ export default function EditorClient() {
             fill: bgColor, selectable: false, evented: false,
           });
           canvas.add(cover);
-          canvas.renderAll();
         } catch (e) { console.warn("Cover rect failed:", e); }
       }
 
-      // CSS fallback stack: use the detected family first, then system sans
+      // Build CSS font-family stack: detected font first, then system fallbacks
       const fontFamilyFull = detectedFamily + ", Arial, Helvetica, sans-serif";
-
-      // Auto-fit: shrink fontSize if replacement text overflows bbox width
-      let fittedSize = detectedSize;
-      const tempCtx = document.createElement("canvas").getContext("2d")!;
       const weightStr = detectedWeight >= 700 ? "bold" : detectedWeight >= 500 ? "500" : "normal";
-      tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamilyFull}`;
-      let textW = tempCtx.measureText(editText || " ").width;
-      while (textW > Math.max(bboxW - 4, 1) && fittedSize > 8) {
-        fittedSize -= 1;
+
+      // Measure the actual font's cap-height ratio using the Canvas API
+      const tempCtx = document.createElement("canvas").getContext("2d")!;
+      tempCtx.font = `${weightStr} 100px ${fontFamilyFull}`;
+      const fontMetrics = tempCtx.measureText("Hg");
+      const capHeightRatio = fontMetrics.actualBoundingBoxAscent / 100;
+
+      // Initial font size so cap-height matches bbox height
+      let fittedSize = Math.max(Math.min(Math.round(bboxH / capHeightRatio), 400), 6);
+
+      // Iteratively fit BOTH width and height with 1-2px tolerance
+      for (let iter = 0; iter < 50; iter++) {
         tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamilyFull}`;
-        textW = tempCtx.measureText(editText || " ").width;
+        const textW = tempCtx.measureText(editText || " ").width;
+        const textH = fittedSize * capHeightRatio;
+
+        const widthOk = textW <= bboxW + 1;
+        const heightOk = Math.abs(textH - bboxH) <= 2;
+
+        if (widthOk && heightOk) break;
+
+        if (textW > bboxW && fittedSize > 6) {
+          fittedSize--;
+        } else if (textH > bboxH + 2 && fittedSize > 6) {
+          fittedSize--;
+        } else if (textH < bboxH - 2 && fittedSize < 400 && textW <= bboxW) {
+          fittedSize++;
+        } else {
+          break;
+        }
       }
 
-// DEBUG: log what handleApply is reading
-      console.warn(`[handleApply] bbox editText="${editText}" family="${detectedFamily}" size=${detectedSize} color=${detectedColor} weight=${detectedWeight} bboxH=${bboxH} bboxW=${bboxW}`);
-
+      // Create the Fabric Textbox with the fitted font size
       const tb = new FabricTextbox(editText, {
         left: bboxLeft,
-        top: bboxTop,  // temporary, adjusted below after measuring internals
+        top: bboxTop,
         width: Math.max(bboxW, 10),
         minWidth: 0,
-        fontSize: fittedSize, fontFamily: fontFamilyFull, fill: detectedColor, padding: 0,
-        fontWeight: detectedWeight, fontStyle: "normal",
+        fontSize: fittedSize,
+        fontFamily: fontFamilyFull,
+        fill: detectedColor,
+        padding: 0,
+        fontWeight: detectedWeight,
+        fontStyle: "normal",
         underline: false, linethrough: false,
-        textAlign: "center", charSpacing: 0,
+        textAlign: "center",
+        charSpacing: 0,
         originX: active.originX || "left",
         originY: "top",
         angle: Math.round(active.angle || 0),
@@ -477,30 +504,19 @@ export default function EditorClient() {
         borderColor: "#FF6583", cornerColor: "#FF6583", cornerSize: 8,
         transparentCorners: false, editable: true,
       });
-      // Clone shadow from the original object
+
       if (active.shadow) {
         try { tb.set("shadow", new FabricShadow(active.shadow)); } catch {}
       }
-      // Adjust top so cap-height fills bbox
+
+      // Adjust vertical position so the cap-height exactly fills the bbox
       try {
-        const lh = (tb as any).getHeightOfLineImpl(0);
+        const lineHeightPx = (tb as any).getHeightOfLineImpl(0);
         const fsf = 0.222;
-        const capTopFromTop = lh * (1 - fsf) - detectedSize * 0.716;
+        // capTopFromTop = distance from textbox top edge to visual cap-height top
+        const capTopFromTop = lineHeightPx * (1 - fsf) - fittedSize * capHeightRatio;
         tb.top = bboxTop - capTopFromTop;
       } catch { tb.top = bboxTop; }
-      console.warn(`[pos] tb.top=${Math.round(tb.top)} bboxTop=${Math.round(bboxTop)}`);
-
-      // Debug: compare every Fabric property between bbox and replacement
-      const bboxObj = active.toObject();
-      const tbObj = tb.toObject();
-      const allKeys = new Set([...Object.keys(bboxObj), ...Object.keys(tbObj)]);
-      const diffs: string[] = [];
-      for (const k of allKeys) {
-        const a = JSON.stringify((bboxObj as any)[k]);
-        const b = JSON.stringify((tbObj as any)[k]);
-        if (a !== b) diffs.push(`${k}: bbox=${a} -> tb=${b}`);
-      }
-      console.warn("[toObject diff]", diffs.join("\n  "));
 
       canvas.remove(active);
       canvas.add(tb);
