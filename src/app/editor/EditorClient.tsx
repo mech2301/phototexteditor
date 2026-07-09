@@ -395,6 +395,13 @@ export default function EditorClient() {
       const bboxW = Math.round((active.width || 1) * (active.scaleX || 1));
       const bboxH = Math.round((active.height || 1) * (active.scaleY || 1));
 
+      // Always read detected properties from the Fabric bbox object itself,
+      // NOT from React state (which may be stale or from a different bbox).
+      const detectedFamily = (active as any)._fontFamily || "Arial";
+      const detectedSize = (active as any)._fontSize || Math.round(bboxH * 1.4) || 24;
+      const detectedColor = (active as any)._fontColor || "#000000";
+      const detectedWeight = (active as any)._fontWeight || 400;
+
       // Background-colored rect to cover old text (sample from original image)
       if (imageUrl) {
         try {
@@ -424,12 +431,12 @@ export default function EditorClient() {
       }
 
       // CSS fallback stack: use the detected family first, then system sans
-      const fontFamilyFull = fontFamily + ", Arial, Helvetica, sans-serif";
+      const fontFamilyFull = detectedFamily + ", Arial, Helvetica, sans-serif";
 
       // Auto-fit: shrink fontSize if replacement text overflows bbox width
-      let fittedSize = fontSize;
+      let fittedSize = detectedSize;
       const tempCtx = document.createElement("canvas").getContext("2d")!;
-      const weightStr = fontWeight >= 700 ? "bold" : fontWeight >= 500 ? "500" : "normal";
+      const weightStr = detectedWeight >= 700 ? "bold" : detectedWeight >= 500 ? "500" : "normal";
       tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamilyFull}`;
       let textW = tempCtx.measureText(editText || " ").width;
       while (textW > Math.max(bboxW - 4, 1) && fittedSize > 8) {
@@ -449,18 +456,14 @@ export default function EditorClient() {
         left: bboxLeft,
         top: bboxTop + vertOffset,
         width: Math.max(bboxW, 10),
-        // RC3: prevent Fabric from overriding narrow widths
         minWidth: 0,
-        // Font properties — from React state (set by syncFromObj + user edits)
-        fontSize: fittedSize, fontFamily: fontFamilyFull, fill: fontColor, padding: 0,
-        fontWeight, fontStyle: italic ? "italic" : "normal",
-        underline, linethrough: strikethrough,
-        // RC4: center text within the bbox for a natural single-word look
-        textAlign: "center", charSpacing,
-        // RC5: clone origin reference points from the bbox object
+        // Font properties — read from bbox object's _font* fields
+        fontSize: fittedSize, fontFamily: fontFamilyFull, fill: detectedColor, padding: 0,
+        fontWeight: detectedWeight, fontStyle: "normal",
+        underline: false, linethrough: false,
+        textAlign: "center", charSpacing: 0,
         originX: active.originX || "left",
         originY: active.originY || "top",
-        // Cloned from the original bbox object's native Fabric properties
         angle: Math.round(active.angle || 0),
         scaleX: active.scaleX ?? 1,
         scaleY: active.scaleY ?? 1,
@@ -469,7 +472,7 @@ export default function EditorClient() {
         skewX: active.skewX ?? 0,
         skewY: active.skewY ?? 0,
         opacity: active.opacity ?? 1,
-        strokeWidth, stroke: strokeWidth > 0 ? fontColor : undefined,
+        strokeWidth: 0, stroke: undefined,
         lineHeight: 1,
         borderColor: "#FF6583", cornerColor: "#FF6583", cornerSize: 8,
         transparentCorners: false, editable: true,
