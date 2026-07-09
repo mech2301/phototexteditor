@@ -431,7 +431,7 @@ export default function EditorClient() {
             fill: bgColor, selectable: false, evented: false,
           });
           canvas.add(cover);
-          canvas.sendObjectToBack(cover);
+          canvas.renderAll();
         } catch (e) { console.warn("Cover rect failed:", e); }
       }
 
@@ -454,9 +454,10 @@ export default function EditorClient() {
       console.warn(`[handleApply] bbox editText="${editText}" family="${detectedFamily}" size=${detectedSize} color=${detectedColor} weight=${detectedWeight} bboxH=${bboxH} bboxW=${bboxW}`);
 
       const tb = new FabricTextbox(editText, {
-        // Position and size — cloned from bbox native geometry
+        // Position: use originY:center so Fabric's internal text offset
+        // cancels out — cap-height lands at approximately bboxTop.
         left: bboxLeft,
-        top: bboxTop + bboxH,
+        top: bboxTop + Math.round(bboxH / 2),
         width: Math.max(bboxW, 10),
         minWidth: 0,
         // Font properties — read from bbox object's _font* fields
@@ -465,7 +466,7 @@ export default function EditorClient() {
         underline: false, linethrough: false,
         textAlign: "center", charSpacing: 0,
         originX: active.originX || "left",
-        originY: active.originY || "top",
+        originY: "center",
         angle: Math.round(active.angle || 0),
         scaleX: active.scaleX ?? 1,
         scaleY: active.scaleY ?? 1,
@@ -486,10 +487,14 @@ export default function EditorClient() {
       // Debug: log internal text positioning for this textbox
       try {
         const h = tb.height;
-        const lhOff = (tb as any)._lineHeightOffset ?? "?";
-        const capH = Math.round(detectedSize * 0.716);
-        const visTop = Math.round(bboxTop + bboxH + (lhOff === "?" ? 0 : (lhOff as number)) - detectedSize * 0.716);
-        console.warn(`[textbox pos] tb.top=${tb.top} tb.height=${h} _lineHeightOffset=${lhOff} fontSize=${detectedSize} estCapH=${capH} estVisTop=${visTop} bboxTop=${bboxTop}`);
+        const lh0 = (tb as any).getHeightOfLineImpl(0);
+        const fsf = 0.222;
+        const fsm = 1.13;
+        const internalBase = -h / 2 + lh0 * (1 - fsf);
+        const internalCapTop = internalBase - detectedSize * 0.716;
+        const capTopFromTop = internalCapTop + h / 2;
+        const absCapTop = tb.top + capTopFromTop;
+        console.warn(`[textbox pos] tb.top=${tb.top} h=${h} lh0=${lh0} intBase=${Math.round(internalBase*100)/100} capFromTop=${Math.round(capTopFromTop)} absCapTop=${Math.round(absCapTop)} bboxTop=${Math.round(bboxTop)} bboxBot=${Math.round(bboxTop+bboxH)}`);
       } catch {}
 
       // Debug: compare every Fabric property between bbox and replacement
