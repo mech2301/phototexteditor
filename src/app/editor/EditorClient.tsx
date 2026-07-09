@@ -15,6 +15,7 @@ import {
   ArrowBackIos,
   Download,
   CloudUpload,
+  AutoAwesome,
 } from "@mui/icons-material";
 import Link from "next/link";
 import LeftPanel from "@/components/editor/LeftPanel";
@@ -56,6 +57,7 @@ export default function EditorClient() {
   const drawRectRef = useRef<any>(null);
   const fileRef = useRef<File | null>(null);
   const imageInfoRef = useRef({ scale: 1, left: 0, top: 0 });
+  const skipCoverRef = useRef(false);
 
   const getFabric = useCallback(async () => {
     const fabric = await import("fabric");
@@ -413,7 +415,7 @@ export default function EditorClient() {
       const detectedColor = (active as any)._fontColor || "#000000";
       const detectedWeight = (active as any)._fontWeight || 400;
 
-      if (imageUrl) {
+      if (imageUrl && !skipCoverRef.current) {
         try {
           const { scale: sc, left: imgOffX, top: imgOffY } = imageInfoRef.current;
           const origX = Math.max(Math.round((bboxLeft - imgOffX) / sc) - 1, 0);
@@ -438,6 +440,7 @@ export default function EditorClient() {
           canvas.add(cover);
         } catch (e) { console.warn("Cover rect failed:", e); }
       }
+      skipCoverRef.current = false;
 
       // Build CSS font-family stack: detected font first, then system fallbacks
       const fontFamilyFull = detectedFamily + ", Arial, Helvetica, sans-serif";
@@ -571,6 +574,64 @@ export default function EditorClient() {
     canvas.renderAll();
     syncFromObj(tb);
   }, [fontSize, fontFamily, fontColor, fontWeight, italic, underline, strikethrough, textAlign, lineHeight, charSpacing, opacity, strokeWidth, shadowEnabled, getFabric, syncFromObj]);
+
+  const handleSmartReplace = useCallback(async () => {
+    const canvas = fabricRef.current;
+    if (!canvas) return;
+    const active = canvas.getActiveObject();
+    if (!active || !active.isBbox) return;
+    if (!fileRef.current) return;
+
+    const fabric = await getFabric();
+    const { Image: FabricImage } = fabric;
+
+    const bboxLeft = Math.round(active.left || 0);
+    const bboxTop = Math.round(active.top || 0);
+    const bboxW = Math.round((active.width || 1) * (active.scaleX || 1));
+    const bboxH = Math.round((active.height || 1) * (active.scaleY || 1));
+
+    const { scale: sc, left: imgOffX, top: imgOffY } = imageInfoRef.current;
+    const origX = Math.max(Math.round((bboxLeft - imgOffX) / sc) - 2, 0);
+    const origY = Math.max(Math.round((bboxTop - imgOffY) / sc) - 2, 0);
+    const origW = Math.max(Math.round(bboxW / sc) + 4, 4);
+    const origH = Math.max(Math.round(bboxH / sc) + 4, 4);
+
+    try {
+      const { inpaintTextRemoval } = await import("@/lib/inpainting");
+      const result = await inpaintTextRemoval(fileRef.current, [{ x: origX, y: origY, width: origW, height: origH }]);
+
+      const imgEl = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = result.imageUrl;
+      });
+
+      const bgImg = canvas._objects.find((o: any) => o instanceof FabricImage);
+      if (bgImg) {
+        const idx = canvas._objects.indexOf(bgImg);
+        const newBg = new FabricImage(imgEl, {
+          left: bgImg.left,
+          top: bgImg.top,
+          scaleX: bgImg.scaleX,
+          scaleY: bgImg.scaleY,
+          originX: bgImg.originX,
+          originY: bgImg.originY,
+          opacity: bgImg.opacity,
+          selectable: false,
+          evented: false,
+        });
+        canvas.remove(bgImg);
+        canvas._objects.splice(idx, 0, newBg);
+      }
+
+      skipCoverRef.current = true;
+      await handleApply();
+    } catch (e) {
+      console.error("AI Smart Replace failed:", e);
+    }
+  }, [getFabric, handleApply]);
 
   const handleDownload = useCallback(() => {
     const canvas = fabricRef.current;
@@ -747,6 +808,7 @@ export default function EditorClient() {
               selectedText={selectedText}
               onApply={handleApply}
               onAddText={handleAddText}
+              onSmartReplace={handleSmartReplace}
             />
           </Drawer>
         )}

@@ -5,7 +5,7 @@ export interface InpaintResult {
 
 export async function inpaintTextRemoval(
   imageFile: File,
-  maskRegion: { x: number; y: number; width: number; height: number }
+  maskRegions: { x: number; y: number; width: number; height: number }[]
 ): Promise<InpaintResult> {
   const iopaintUrl = process.env.NEXT_PUBLIC_IOPAINT_URL;
   if (!iopaintUrl) {
@@ -26,7 +26,9 @@ export async function inpaintTextRemoval(
       ctx.fillStyle = "black";
       ctx.fillRect(0, 0, img.width, img.height);
       ctx.fillStyle = "white";
-      ctx.fillRect(maskRegion.x, maskRegion.y, maskRegion.width, maskRegion.height);
+      for (const r of maskRegions) {
+        ctx.fillRect(r.x, r.y, r.width, r.height);
+      }
       resolve();
     };
     img.src = imgUrl;

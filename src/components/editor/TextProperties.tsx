@@ -34,6 +34,7 @@ import {
   KeyboardArrowLeft,
   KeyboardArrowRight,
   HelpOutlined,
+  AutoAwesome,
 } from "@mui/icons-material";
 
 const FONT_CATEGORIES = [
@@ -102,6 +103,7 @@ interface Props {
   selectedText: string;
   onApply: () => void;
   onAddText: () => void;
+  onSmartReplace: () => void;
 }
 
 function SliderRow({
@@ -171,7 +173,7 @@ export default function TextProperties({
   skewX, onSkewXChange,
   originalText, editText, onEditTextChange,
   shadowEnabled, onShadowToggle,
-  selectedText, onApply, onAddText,
+  selectedText, onApply, onAddText, onSmartReplace,
 }: Props) {
   const [fontCat, setFontCat] = useState("Preset");
   const [format, setFormat] = useState<string[]>(() => {
@@ -437,13 +439,33 @@ export default function TextProperties({
         sx={{
           textTransform: "none",
           fontSize: 13,
-          mb: 1.5,
+          mb: 1,
           bgcolor: "#FF6583",
           "&:hover": { bgcolor: "#e55a76" },
           "&.Mui-disabled": { bgcolor: "action.disabledBackground" },
         }}
       >
         Apply
+      </Button>
+
+      {/* AI Smart Replace Button */}
+      <Button
+        fullWidth
+        variant="outlined"
+        disabled={!selectedText || !editText}
+        onClick={onSmartReplace}
+        startIcon={<AutoAwesome sx={{ fontSize: 16 }} />}
+        sx={{
+          textTransform: "none",
+          fontSize: 13,
+          mb: 1.5,
+          borderColor: "#AB47BC",
+          color: "#AB47BC",
+          "&:hover": { borderColor: "#8e24aa", bgcolor: "rgba(171,71,188,0.04)" },
+          "&.Mui-disabled": { borderColor: "action.disabled" },
+        }}
+      >
+        AI Smart Replace
       </Button>
 
       {/* Shadow */}

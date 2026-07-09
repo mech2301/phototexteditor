@@ -1,0 +1,9 @@
+version: "3.9"
+services:
+  iopaint:
+    image: sandster/lama-cleaner:latest
+    container_name: photext-iopaint
+    ports:
+      - "8080:8080"
+    command: lama-cleaner --model lama --device cpu --port 8080
+    restart: unless-stopped
