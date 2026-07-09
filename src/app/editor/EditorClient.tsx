@@ -177,6 +177,11 @@ export default function EditorClient() {
     obj._fontColor = detectedColor;
     obj._fontWeight = detectedWeight;
 
+    // DEBUG: log what was detected for this bbox
+    if (obj.isBbox) {
+      console.warn(`[syncFromObj] bbox originalText="${origText}" color=${detectedColor} size=${detectedSize} weight=${detectedWeight} family="${detectedFamily}" bboxH=${obj.height} bboxW=${obj.width}`);
+    }
+
     setItalic(obj.fontStyle === "italic");
     setUnderline(!!obj.underline);
     setStrikethrough(!!obj.linethrough);
@@ -445,8 +450,11 @@ export default function EditorClient() {
         textW = tempCtx.measureText(editText || " ").width;
       }
 
+// DEBUG: log what handleApply is reading
+      console.warn(`[handleApply] bbox editText="${editText}" family="${detectedFamily}" size=${detectedSize} color=${detectedColor} weight=${detectedWeight} bboxH=${bboxH} bboxW=${bboxW} vertOffset=${bboxH}`);
+
       // With originY:top and lineHeight:1, Fabric places the baseline at
-      // the textbox's top edge.  The visual text then extends upward from
+      // the bbox's top edge.  The visual text then extends upward from
       // top by fontSize * capHeightRatio (≈ bboxH).  To position the visual
       // text inside the bbox, set baseline = bboxTop + bboxH.
       const vertOffset = bboxH;
