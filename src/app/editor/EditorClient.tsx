@@ -155,9 +155,10 @@ export default function EditorClient() {
         const sans = fonts.find(f => f.category === "sans-serif");
         if (sans) detectedFamily = sans.family;
       } catch {}
-      // Use a CSS font-family stack so the browser falls back to a system
-      // sans-serif if the detected Google Font is not installed on the device.
-      setFontFamily(detectedFamily + ", Arial, Helvetica, sans-serif");
+      // Store only the family name in React state so the MUI Select
+      // dropdown (which has simple names like "Arial") can match it.
+      // The CSS fallback stack is built later in handleApply.
+      setFontFamily(detectedFamily);
       setFontSize(detectedSize);
     } else {
       detectedColor = obj.fill || "#000000";
@@ -422,23 +423,26 @@ export default function EditorClient() {
         } catch (e) { console.warn("Cover rect failed:", e); }
       }
 
+      // CSS fallback stack: use the detected family first, then system sans
+      const fontFamilyFull = fontFamily + ", Arial, Helvetica, sans-serif";
+
       // Auto-fit: shrink fontSize if replacement text overflows bbox width
       let fittedSize = fontSize;
       const tempCtx = document.createElement("canvas").getContext("2d")!;
       const weightStr = fontWeight >= 700 ? "bold" : fontWeight >= 500 ? "500" : "normal";
-      tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamily}`;
+      tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamilyFull}`;
       let textW = tempCtx.measureText(editText || " ").width;
       while (textW > Math.max(bboxW - 4, 1) && fittedSize > 8) {
         fittedSize -= 1;
-        tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamily}`;
+        tempCtx.font = `${weightStr} ${fittedSize}px ${fontFamilyFull}`;
         textW = tempCtx.measureText(editText || " ").width;
       }
 
-      // RC2: shift vertical position so the visual text fills the bbox
-      // Fabric renders text with baseline at ~top + fontSize, pushing the
-      // cap-height line down.  Offset by (fontSize - bboxH) / 2 so the
-      // visible glyphs sit inside the original bbox.
-      const vertOffset = Math.round((fittedSize - bboxH) / 2);
+      // With originY:top and lineHeight:1, Fabric places the baseline at
+      // the textbox's top edge.  The visual text then extends upward from
+      // top by fontSize * capHeightRatio (≈ bboxH).  To position the visual
+      // text inside the bbox, set baseline = bboxTop + bboxH.
+      const vertOffset = bboxH;
 
       const tb = new FabricTextbox(editText, {
         // Position and size — cloned from bbox native geometry
@@ -448,7 +452,7 @@ export default function EditorClient() {
         // RC3: prevent Fabric from overriding narrow widths
         minWidth: 0,
         // Font properties — from React state (set by syncFromObj + user edits)
-        fontSize: fittedSize, fontFamily, fill: fontColor, padding: 0,
+        fontSize: fittedSize, fontFamily: fontFamilyFull, fill: fontColor, padding: 0,
         fontWeight, fontStyle: italic ? "italic" : "normal",
         underline, linethrough: strikethrough,
         // RC4: center text within the bbox for a natural single-word look
@@ -474,6 +478,18 @@ export default function EditorClient() {
       if (active.shadow) {
         try { tb.set("shadow", new FabricShadow(active.shadow)); } catch {}
       }
+      // Debug: compare every Fabric property between bbox and replacement
+      const bboxObj = active.toObject();
+      const tbObj = tb.toObject();
+      const allKeys = new Set([...Object.keys(bboxObj), ...Object.keys(tbObj)]);
+      const diffs: string[] = [];
+      for (const k of allKeys) {
+        const a = JSON.stringify((bboxObj as any)[k]);
+        const b = JSON.stringify((tbObj as any)[k]);
+        if (a !== b) diffs.push(`${k}: bbox=${a} -> tb=${b}`);
+      }
+      console.warn("[toObject diff]", diffs.join("\n  "));
+
       canvas.remove(active);
       canvas.add(tb);
       canvas.setActiveObject(tb);
