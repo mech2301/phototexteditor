@@ -454,19 +454,16 @@ export default function EditorClient() {
       console.warn(`[handleApply] bbox editText="${editText}" family="${detectedFamily}" size=${detectedSize} color=${detectedColor} weight=${detectedWeight} bboxH=${bboxH} bboxW=${bboxW}`);
 
       const tb = new FabricTextbox(editText, {
-        // Position: use originY:center so Fabric's internal text offset
-        // cancels out — cap-height lands at approximately bboxTop.
         left: bboxLeft,
-        top: bboxTop + Math.round(bboxH / 2),
+        top: bboxTop,  // temporary, adjusted below after measuring internals
         width: Math.max(bboxW, 10),
         minWidth: 0,
-        // Font properties — read from bbox object's _font* fields
         fontSize: fittedSize, fontFamily: fontFamilyFull, fill: detectedColor, padding: 0,
         fontWeight: detectedWeight, fontStyle: "normal",
         underline: false, linethrough: false,
         textAlign: "center", charSpacing: 0,
         originX: active.originX || "left",
-        originY: "center",
+        originY: "top",
         angle: Math.round(active.angle || 0),
         scaleX: active.scaleX ?? 1,
         scaleY: active.scaleY ?? 1,
@@ -484,19 +481,14 @@ export default function EditorClient() {
       if (active.shadow) {
         try { tb.set("shadow", new FabricShadow(active.shadow)); } catch {}
       }
-      // Debug: log actual absolute pixel position of the text cap-height
+      // Adjust top so cap-height fills bbox
       try {
-        const h = tb.height;
-        const lh0 = (tb as any).getHeightOfLineImpl(0);
+        const lh = (tb as any).getHeightOfLineImpl(0);
         const fsf = 0.222;
-        const internalBase = -h / 2 + lh0 * (1 - fsf);
-        const internalCapTop = internalBase - detectedSize * 0.716;
-        const capTopFromTop = internalCapTop + h / 2;
-        // With originY:center, tb.top is the CENTER, so textbox top = tb.top - h/2
-        const textboxTop = tb.top - h / 2;
-        const absCapTop = textboxTop + capTopFromTop;
-        console.warn(`[textbox pos] textboxTop=${Math.round(textboxTop)} capTop=${Math.round(absCapTop)} bboxTop=${Math.round(bboxTop)} bboxBot=${Math.round(bboxTop+bboxH)}`);
-      } catch {}
+        const capTopFromTop = lh * (1 - fsf) - detectedSize * 0.716;
+        tb.top = bboxTop - capTopFromTop;
+      } catch { tb.top = bboxTop; }
+      console.warn(`[pos] tb.top=${Math.round(tb.top)} bboxTop=${Math.round(bboxTop)}`);
 
       // Debug: compare every Fabric property between bbox and replacement
       const bboxObj = active.toObject();
