@@ -431,7 +431,7 @@ export default function EditorClient() {
             fill: bgColor, selectable: false, evented: false,
           });
           canvas.add(cover);
-          canvas.sendToBack(cover);
+          canvas.moveTo(cover, 0);
         } catch (e) { console.warn("Cover rect failed:", e); }
       }
 
@@ -453,16 +453,10 @@ export default function EditorClient() {
 // DEBUG: log what handleApply is reading
       console.warn(`[handleApply] bbox editText="${editText}" family="${detectedFamily}" size=${detectedSize} color=${detectedColor} weight=${detectedWeight} bboxH=${bboxH} bboxW=${bboxW} vertOffset=${bboxH}`);
 
-      // With originY:top and lineHeight:1, Fabric places the baseline at
-      // the bbox's top edge.  The visual text then extends upward from
-      // top by fontSize * capHeightRatio (≈ bboxH).  To position the visual
-      // text inside the bbox, set baseline = bboxTop + bboxH.
-      const vertOffset = bboxH;
-
       const tb = new FabricTextbox(editText, {
         // Position and size — cloned from bbox native geometry
         left: bboxLeft,
-        top: bboxTop + vertOffset,
+        top: bboxTop,
         width: Math.max(bboxW, 10),
         minWidth: 0,
         // Font properties — read from bbox object's _font* fields
