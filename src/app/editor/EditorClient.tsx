@@ -431,7 +431,7 @@ export default function EditorClient() {
             fill: bgColor, selectable: false, evented: false,
           });
           canvas.add(cover);
-          canvas.moveTo(cover, 0);
+          canvas.sendObjectToBack(cover);
         } catch (e) { console.warn("Cover rect failed:", e); }
       }
 
@@ -451,12 +451,12 @@ export default function EditorClient() {
       }
 
 // DEBUG: log what handleApply is reading
-      console.warn(`[handleApply] bbox editText="${editText}" family="${detectedFamily}" size=${detectedSize} color=${detectedColor} weight=${detectedWeight} bboxH=${bboxH} bboxW=${bboxW} vertOffset=${bboxH}`);
+      console.warn(`[handleApply] bbox editText="${editText}" family="${detectedFamily}" size=${detectedSize} color=${detectedColor} weight=${detectedWeight} bboxH=${bboxH} bboxW=${bboxW}`);
 
       const tb = new FabricTextbox(editText, {
         // Position and size — cloned from bbox native geometry
         left: bboxLeft,
-        top: bboxTop,
+        top: bboxTop + bboxH,
         width: Math.max(bboxW, 10),
         minWidth: 0,
         // Font properties — read from bbox object's _font* fields
@@ -483,6 +483,15 @@ export default function EditorClient() {
       if (active.shadow) {
         try { tb.set("shadow", new FabricShadow(active.shadow)); } catch {}
       }
+      // Debug: log internal text positioning for this textbox
+      try {
+        const h = tb.height;
+        const lhOff = (tb as any)._lineHeightOffset ?? "?";
+        const capH = Math.round(detectedSize * 0.716);
+        const visTop = Math.round(bboxTop + bboxH + (lhOff === "?" ? 0 : (lhOff as number)) - detectedSize * 0.716);
+        console.warn(`[textbox pos] tb.top=${tb.top} tb.height=${h} _lineHeightOffset=${lhOff} fontSize=${detectedSize} estCapH=${capH} estVisTop=${visTop} bboxTop=${bboxTop}`);
+      } catch {}
+
       // Debug: compare every Fabric property between bbox and replacement
       const bboxObj = active.toObject();
       const tbObj = tb.toObject();
