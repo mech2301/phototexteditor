@@ -183,7 +183,9 @@ export default function EditorClient() {
     setLineHeight(obj.lineHeight || 1.2);
     setCharSpacing(obj.charSpacing || 0);
     setOpacity((obj.opacity ?? 1) * 100);
-    setStrokeWidth(obj.strokeWidth || 0);
+    // Bbox strokeWidth is a UI overlay border (2px), NOT a text style.
+    // Never clone it — the original text in the image has no stroke.
+    setStrokeWidth(obj.isBbox ? 0 : (obj.strokeWidth || 0));
     setRotation(obj.angle || 0);
     setSkewX(obj.skewX || 0);
     if (obj.shadow) {
